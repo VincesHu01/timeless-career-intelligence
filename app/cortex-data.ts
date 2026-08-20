@@ -20,8 +20,12 @@ export type JobRecord = {
   summary: string;
   skills: string[];
   ai: string[];
+  bonusSignals?: string[];
+  experienceLevel?: string;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
   evidence: string[];
-  status: "在招" | "待复核" | "招聘项目";
+  status: "在招" | "已下线" | "待复核" | "招聘项目";
 };
 
 export const companySources: CompanySource[] = [

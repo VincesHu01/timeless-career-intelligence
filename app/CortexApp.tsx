@@ -3,15 +3,36 @@
 import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { companySources, knowledgeCards, reviewIntervals, verifiedJobs, type JobRecord } from "./cortex-data";
 
-type View = "overview" | "matrix" | "jobs" | "learn" | "sources";
+type View = "overview" | "matrix" | "jobs" | "weekly" | "learn" | "sources";
 type AuthMode = "login" | "signup";
 type AuthConfig = { url: string; key: string; configured: boolean };
 type Session = { access_token: string; user: { email?: string; user_metadata?: Record<string, string> } };
+type WeeklyReport = {
+  title: string;
+  weekStart: string;
+  weekEnd: string;
+  summary: string;
+  generatedAt: string;
+  metrics: { activeJobs:number; newJobs:number; offlineJobs:number; companies:number; aiMentionJobs:number; analyzableClusters:number };
+  clusters: Array<{
+    key:string;
+    roleFamily:string;
+    recruitmentTrack:string;
+    count:number;
+    companies:string[];
+    skills:Array<{name:string;count:number}>;
+    aiSkills:Array<{name:string;count:number}>;
+    bonusSignals:Array<{name:string;count:number}>;
+    jobIds:string[];
+  }>;
+  sources:Array<{company:string;title:string;url:string}>;
+};
 
 const navItems: { id: View; label: string; en: string; icon: string }[] = [
   { id:"overview", label:"市场雷达", en:"RADAR", icon:"⌁" },
   { id:"matrix", label:"能力透视", en:"MATRIX", icon:"▦" },
   { id:"jobs", label:"岗位库", en:"JOBS", icon:"◎" },
+  { id:"weekly", label:"趋势周报", en:"WEEKLY", icon:"↗" },
   { id:"learn", label:"AI 学习", en:"LEARN", icon:"◇" },
   { id:"sources", label:"数据来源", en:"SOURCES", icon:"⌘" },
 ];
@@ -43,6 +64,26 @@ export default function CortexApp() {
   const [reviews, setReviews] = useState<Record<string, number>>({});
   const [modelStatus, setModelStatus] = useState("等待测试");
   const [toast, setToast] = useState("");
+  const [jobs, setJobs] = useState<JobRecord[]>(verifiedJobs);
+  const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
+
+  const loadMarketData = async () => {
+    try {
+      const [jobsResponse, reportResponse] = await Promise.all([fetch("/api/jobs"), fetch("/api/weekly-report")]);
+      if (jobsResponse.ok) {
+        const data = await jobsResponse.json() as { jobs?: JobRecord[] };
+        if (data.jobs?.length) setJobs(data.jobs);
+      }
+      if (reportResponse.ok) {
+        const data = await reportResponse.json() as { report?: WeeklyReport | null };
+        if (data.report) setWeeklyReport(data.report);
+      }
+    } catch {
+      setToast("动态数据暂不可用，正在展示已核验的基础样本");
+    }
+  };
+
+  useEffect(() => { queueMicrotask(() => void loadMarketData()); }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("cortex_session");
@@ -89,12 +130,12 @@ export default function CortexApp() {
       .catch(() => setToast("复习记录暂未同步，当前页面仍可继续学习"));
   }, [session]);
 
-  const filteredJobs = useMemo(() => verifiedJobs.filter((job) => {
+  const filteredJobs = useMemo(() => jobs.filter((job) => {
     const haystack = `${job.company}${job.title}${job.family}${job.skills.join("")}${job.ai.join("")}`.toLowerCase();
     return (!query || haystack.includes(query.toLowerCase())) &&
       (company === "全部公司" || job.company === company) &&
       (track === "全部类型" || job.track.includes(track));
-  }), [query, company, track]);
+  }), [jobs, query, company, track]);
 
   const navigate = (next: View) => {
     setView(next);
@@ -111,7 +152,9 @@ export default function CortexApp() {
       const response = await fetch("/api/refresh", { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${session.access_token}` }, body:JSON.stringify({ company:name }) });
       const data = await response.json() as { error?:string };
       if (!response.ok) throw new Error(data.error === "cooldown" ? `${name} 的更新请求仍在 30 分钟冷却期` : data.error || "提交失败");
-      setToast(`已提交 ${name} 更新请求；源站限制不会被绕过`);
+      const result = data as { result?:{ accepted?:number; status?:string }; error?:string };
+      setToast(result.result?.status === "success" ? `${name} 已更新，新增/更新 ${result.result.accepted || 0} 条证据记录` : `${name} 已完成检查，当前需要人工复核`);
+      await loadMarketData();
     } catch (reason) {
       setToast(reason instanceof Error ? reason.message : "更新请求暂时无法提交");
     }
@@ -214,15 +257,16 @@ export default function CortexApp() {
         </header>
 
         <main className="cx-content">
-          {view === "overview" && <Overview onNavigate={navigate} onJob={setSelectedJob} onRefresh={requestRefresh} />}
-          {view === "matrix" && <MatrixView onJob={setSelectedJob} />}
+          {view === "overview" && <Overview jobs={jobs} onNavigate={navigate} onJob={setSelectedJob} onRefresh={requestRefresh} />}
+          {view === "matrix" && <MatrixView jobs={jobs} onJob={setSelectedJob} />}
           {view === "jobs" && <JobsView jobs={filteredJobs} query={query} company={company} track={track} onCompany={setCompany} onTrack={setTrack} onJob={setSelectedJob} />}
+          {view === "weekly" && <WeeklyView report={weeklyReport} session={session} onReport={setWeeklyReport} onToast={setToast} />}
           {view === "learn" && <LearnView reviews={reviews} onReview={completeReview} onNotify={enableNotifications} />}
           {view === "sources" && <SourcesView onRefresh={requestRefresh} onTestModel={testModel} modelStatus={modelStatus} />}
         </main>
 
         <nav className="cx-mobile-nav" aria-label="移动端导航">
-          {navItems.slice(0,5).map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)}><i>{item.icon}</i><span>{item.label}</span></button>)}
+          {navItems.filter((item) => item.id !== "sources").slice(0,5).map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)}><i>{item.icon}</i><span>{item.label}</span></button>)}
         </nav>
       </div>
 
@@ -237,10 +281,10 @@ function PageTitle({ eyebrow, title, desc, actions }: { eyebrow:string; title:st
   return <div className="cx-page-title"><div><span>{eyebrow}</span><h1>{title}</h1><p>{desc}</p></div>{actions && <div className="cx-title-actions">{actions}</div>}</div>;
 }
 
-function Overview({ onNavigate, onJob, onRefresh }: { onNavigate:(view:View)=>void; onJob:(job:JobRecord)=>void; onRefresh:(name:string)=>void }) {
+function Overview({ jobs, onNavigate, onJob, onRefresh }: { jobs:JobRecord[]; onNavigate:(view:View)=>void; onJob:(job:JobRecord)=>void; onRefresh:(name:string)=>void }) {
   const gradeA = companySources.filter((item) => item.level === "A").length;
-  const analyzable = verifiedJobs.filter((job) => job.skills.length > 0).length;
-  const aiMention = verifiedJobs.filter((job) => job.ai.length > 0).length;
+  const analyzable = jobs.filter((job) => job.skills.length > 0).length;
+  const aiMention = jobs.filter((job) => job.ai.length > 0).length;
   return <>
     <section className="cx-hero-grid">
       <div className="cx-hero-copy">
@@ -248,7 +292,7 @@ function Overview({ onNavigate, onJob, onRefresh }: { onNavigate:(view:View)=>vo
         <h1>招聘市场不会给你答案，<br /><em>Cortex</em> 给你证据。</h1>
         <p>追踪 13 家互联网公司，只分析产品与目标运营岗位。每一个结论都可以回到官方职位、原文证据与核验时间。</p>
         <div className="cx-hero-buttons"><button onClick={() => onNavigate("matrix")}>查看能力透视 <b>↗</b></button><button onClick={() => onNavigate("jobs")}>浏览真实样本</button></div>
-        <div className="cx-trust-row"><span><b>13</b> 家目标公司</span><span><b>{verifiedJobs.length}</b> 条首批样本</span><span><b>0</b> 条无来源结论</span></div>
+        <div className="cx-trust-row"><span><b>13</b> 家目标公司</span><span><b>{jobs.length}</b> 条证据记录</span><span><b>0</b> 条无来源结论</span></div>
       </div>
       <div className="cx-orbit-card">
         <div className="cx-orbit-head"><span>REAL-TIME SOURCE MAP</span><b><i /> LIVE</b></div>
@@ -262,7 +306,7 @@ function Overview({ onNavigate, onJob, onRefresh }: { onNavigate:(view:View)=>vo
     </section>
 
     <section className="cx-metrics">
-      <article><span>已核验首批样本</span><strong>{verifiedJobs.length}</strong><small>全部带来源链接</small></article>
+      <article><span>已核验岗位记录</span><strong>{jobs.length}</strong><small>全部带来源链接</small></article>
       <article><span>可参与能力统计</span><strong>{analyzable}</strong><small>职责证据完整</small></article>
       <article><span>明确包含 AI 要求</span><strong>{aiMention}</strong><small>仅统计 JD 明示</small></article>
       <article className="accent"><span>今日学习任务</span><strong>04</strong><button onClick={() => onNavigate("learn")}>开始学习 →</button></article>
@@ -272,7 +316,7 @@ function Overview({ onNavigate, onJob, onRefresh }: { onNavigate:(view:View)=>vo
       <div className="cx-panel cx-evidence-panel">
         <div className="cx-panel-head"><div><span>LATEST EVIDENCE</span><h2>最新可核验岗位</h2></div><button onClick={() => onNavigate("jobs")}>查看全部 →</button></div>
         <div className="cx-job-rows">
-          {verifiedJobs.slice(0,4).map((job) => <button key={job.id} onClick={() => onJob(job)}>
+          {jobs.slice(0,4).map((job) => <button key={job.id} onClick={() => onJob(job)}>
             <span className="cx-company-badge">{job.company.slice(0,1)}</span>
             <span className="cx-job-main"><b>{job.title}</b><small>{job.company} · {job.track} · {job.location}</small></span>
             <span className={`cx-status ${job.status === "在招" ? "live" : "review"}`}>{job.status}</span><i>↗</i>
@@ -296,7 +340,7 @@ function Overview({ onNavigate, onJob, onRefresh }: { onNavigate:(view:View)=>vo
   </>;
 }
 
-function MatrixView({ onJob }: { onJob:(job:JobRecord)=>void }) {
+function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>void }) {
   const [family, setFamily] = useState("AI产品 / 通用产品");
   return <>
     <PageTitle eyebrow="02 / ABILITY MATRIX" title="同类岗位能力透视" desc="先按岗位族对齐，再比较不同公司与招聘阶段；样本不足时不生成“行业普遍要求”。" actions={<><button className="cx-select">近一年⌄</button><button className="cx-primary">导出当前视图 ↗</button></>} />
@@ -318,8 +362,43 @@ function MatrixView({ onJob }: { onJob:(job:JobRecord)=>void }) {
     </div> : <EmptyMatrix family={family} />}
     <section className="cx-panel cx-evidence-chain">
       <div className="cx-panel-head"><div><span>EVIDENCE CHAIN</span><h2>支撑该视图的岗位</h2></div></div>
-      <div>{verifiedJobs.filter((job) => ["百度","阿里巴巴"].includes(job.company) && job.skills.length).map((job) => <button key={job.id} onClick={() => onJob(job)}><span>{job.company}</span><b>{job.title}</b><small>{job.sourceTier}</small><i>查看证据 ↗</i></button>)}</div>
+      <div>{jobs.filter((job) => ["百度","阿里巴巴"].includes(job.company) && job.skills.length).map((job) => <button key={job.id} onClick={() => onJob(job)}><span>{job.company}</span><b>{job.title}</b><small>{job.sourceTier}</small><i>查看证据 ↗</i></button>)}</div>
     </section>
+  </>;
+}
+
+function WeeklyView({ report, session, onReport, onToast }: { report:WeeklyReport|null; session:Session|null; onReport:(report:WeeklyReport)=>void; onToast:(message:string)=>void }) {
+  const [loading, setLoading] = useState(false);
+  const generate = async () => {
+    if (!session?.access_token) { onToast("请先登录，再生成最新周报"); return; }
+    setLoading(true);
+    try {
+      const response = await fetch("/api/weekly-report", { method:"POST", headers:{ Authorization:`Bearer ${session.access_token}` } });
+      const data = await response.json() as { report?:WeeklyReport; error?:string };
+      if (!response.ok || !data.report) throw new Error(data.error || "周报生成失败");
+      onReport(data.report); onToast("本周趋势报告已基于当前证据重新生成");
+    } catch (error) { onToast(error instanceof Error ? error.message : "周报生成失败"); }
+    finally { setLoading(false); }
+  };
+  return <>
+    <PageTitle eyebrow="04 / WEEKLY INTELLIGENCE" title="招聘趋势周报" desc="只汇总数据库中的官方岗位证据；样本不足的岗位簇不会输出跨公司结论。" actions={<button className="cx-primary" onClick={generate} disabled={loading}>{loading ? "生成中…" : "生成最新周报 ↗"}</button>} />
+    {!report ? <section className="cx-panel cx-empty"><strong>尚未生成首份动态周报</strong><p>登录后点击“生成最新周报”，或等待每周自动任务完成。</p></section> : <>
+      <section className="cx-learn-summary cx-weekly-summary">
+        <div><span>在招岗位</span><strong>{report.metrics.activeJobs}</strong><small>保留已下线历史 {report.metrics.offlineJobs} 条</small></div>
+        <div><span>覆盖公司</span><strong>{report.metrics.companies}</strong><small>{report.weekStart} — {report.weekEnd}</small></div>
+        <div><span>明确提及 AI</span><strong>{report.metrics.aiMentionJobs}</strong><small>仅统计原文明确要求</small></div>
+      </section>
+      <section className="cx-panel cx-weekly-report">
+        <div className="cx-panel-head"><div><span>WEEKLY BRIEF</span><h2>{report.title}</h2></div><small>{report.generatedAt?.slice(0,16).replace("T"," ")} 生成</small></div>
+        <p className="cx-report-lead">{report.summary}</p>
+        <div className="cx-cluster-grid">{report.clusters.slice(0,8).map((cluster) => <article key={cluster.key}>
+          <div><span>{cluster.recruitmentTrack}</span><b>{cluster.count} 条</b></div><h3>{cluster.roleFamily}</h3><p>{cluster.companies.join(" / ")}</p>
+          <div className="cx-tags">{cluster.aiSkills.slice(0,3).map((item) => <span key={item.name}>{item.name} · {item.count}</span>)}{cluster.skills.slice(0,3).map((item) => <span key={item.name}>{item.name} · {item.count}</span>)}</div>
+          {cluster.count < 3 || cluster.companies.length < 2 ? <small>样本不足，仅展示，不形成趋势判断</small> : <small>达到跨公司分析门槛</small>}
+        </article>)}</div>
+      </section>
+      <section className="cx-panel cx-evidence-chain"><div className="cx-panel-head"><div><span>SOURCE INDEX</span><h2>本周证据索引</h2></div><small>{report.sources.length} 个官方来源</small></div><div>{report.sources.slice(0,20).map((source) => <a key={`${source.url}-${source.title}`} href={source.url} target="_blank" rel="noreferrer"><span>{source.company}</span><b>{source.title}</b><i>打开官方来源 ↗</i></a>)}</div></section>
+    </>}
   </>;
 }
 
@@ -388,9 +467,10 @@ function SourcesView({ onRefresh, onTestModel, modelStatus }: { onRefresh:(name:
 
 function JobDrawer({ job, onClose }: { job:JobRecord; onClose:()=>void }) {
   return <div className="cx-overlay" role="button" tabIndex={0} aria-label="关闭岗位详情" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} onKeyDown={(event) => { if (event.key === "Escape" || event.key === "Enter") onClose(); }}><aside className="cx-drawer">
-    <button className="cx-close" onClick={onClose}>×</button><div className="cx-drawer-label"><span>{job.company}</span><b>{job.sourceTier}</b></div><h1>{job.title}</h1><div className="cx-drawer-meta"><span>{job.track}</span><span>{job.location}</span><span>{job.date}</span></div>
+    <button className="cx-close" onClick={onClose}>×</button><div className="cx-drawer-label"><span>{job.company}</span><b>{job.sourceTier}</b></div><h1>{job.title}</h1><div className="cx-drawer-meta"><span>{job.track}</span><span>{job.location}</span><span>{job.experienceLevel || "经验未明示"}</span><span>{job.date}</span></div>
     <section><h3>结构化摘要</h3><p>{job.summary}</p></section>
     <section><h3>AI 与业务标签</h3><div className="cx-tags">{[...job.ai,...job.skills].map((tag) => <span key={tag}>{tag}</span>)}{!job.ai.length && !job.skills.length && <span className="muted">公开职责不足，未生成标签</span>}</div></section>
+    {!!job.bonusSignals?.length && <section><h3>原文明示加分项</h3><div className="cx-tags">{job.bonusSignals.map((tag) => <span key={tag}>{tag}</span>)}</div></section>}
     <section><h3>原文证据片段</h3><ul className="cx-evidence-list">{job.evidence.map((item,index) => <li key={item}><i>{String(index+1).padStart(2,"0")}</i><span>{item}</span></li>)}</ul></section>
     <div className="cx-integrity-note"><b>证据规则</b><p>未在公开原文中出现的能力不计入统计；“未明示”不等于公司不需要。</p></div>
     <a className="cx-source-link" href={job.sourceUrl} target="_blank" rel="noreferrer">前往官方来源 <b>↗</b></a>
