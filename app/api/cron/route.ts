@@ -2,12 +2,12 @@ import { generateWeeklyReport } from "../_lib/report";
 import { runCompanyCollection, SOURCE_REGISTRY, type CompanyName } from "../_lib/collector";
 
 function normalizeSecret(value: string | null | undefined) {
-  return value?.trim().replace(/^(["'])(.*)\1$/, "$2").trim();
+  return value?.trim().replace(/^(["'])(.*)\1$/, "$2").replace(/^Bearer\s+/i, "").trim();
 }
 
 export async function POST(request: Request) {
   const expected = normalizeSecret(process.env.CORTEX_CRON_SECRET);
-  const received = normalizeSecret(request.headers.get("x-cortex-cron"));
+  const received = normalizeSecret(request.headers.get("authorization"));
   if (!expected || !received || expected !== received) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
