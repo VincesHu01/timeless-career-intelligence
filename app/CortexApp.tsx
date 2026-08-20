@@ -41,6 +41,7 @@ export default function CortexApp() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [session, setSession] = useState<Session | null>(null);
   const [reviews, setReviews] = useState<Record<string, number>>({});
+  const [modelStatus, setModelStatus] = useState("等待测试");
   const [toast, setToast] = useState("");
 
   useEffect(() => {
@@ -154,6 +155,26 @@ export default function CortexApp() {
     }
   };
 
+  const testModel = async () => {
+    if (!session?.access_token) {
+      setAuthOpen(true);
+      setToast("请先登录，再测试 AI 连接");
+      return;
+    }
+    setModelStatus("测试中…");
+    try {
+      const response = await fetch("/api/model-health", { method:"POST", headers:{ Authorization:`Bearer ${session.access_token}` } });
+      const data = await response.json() as { ok?:boolean; model?:string; error?:string };
+      if (!response.ok || !data.ok) throw new Error(data.error || "模型测试失败");
+      setModelStatus(`${data.model || "模型"} · 已连接`);
+      setToast("火山方舟模型连接成功");
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "模型测试失败";
+      setModelStatus(`失败 · ${message}`);
+      setToast(message);
+    }
+  };
+
   return (
     <div className="cx-app">
       <aside className="cx-sidebar">
@@ -197,7 +218,7 @@ export default function CortexApp() {
           {view === "matrix" && <MatrixView onJob={setSelectedJob} />}
           {view === "jobs" && <JobsView jobs={filteredJobs} query={query} company={company} track={track} onCompany={setCompany} onTrack={setTrack} onJob={setSelectedJob} />}
           {view === "learn" && <LearnView reviews={reviews} onReview={completeReview} onNotify={enableNotifications} />}
-          {view === "sources" && <SourcesView onRefresh={requestRefresh} />}
+          {view === "sources" && <SourcesView onRefresh={requestRefresh} onTestModel={testModel} modelStatus={modelStatus} />}
         </main>
 
         <nav className="cx-mobile-nav" aria-label="移动端导航">
@@ -353,9 +374,9 @@ function LearnView({ reviews, onReview, onNotify }: { reviews:Record<string,numb
   </>;
 }
 
-function SourcesView({ onRefresh }: { onRefresh:(name:string)=>void }) {
+function SourcesView({ onRefresh, onTestModel, modelStatus }: { onRefresh:(name:string)=>void; onTestModel:()=>void; modelStatus:string }) {
   return <>
-    <PageTitle eyebrow="05 / SOURCE AUDIT" title="数据来源与可信状态" desc="A/B/C 是自动化可行性分级，不是公司招聘质量评分；任何源站限制都不会被绕过。" />
+    <PageTitle eyebrow="05 / SOURCE AUDIT" title="数据来源与可信状态" desc="A/B/C 是自动化可行性分级，不是公司招聘质量评分；任何源站限制都不会被绕过。" actions={<button className="cx-primary" onClick={onTestModel}>测试 AI 连接 · {modelStatus}</button>} />
     <div className="cx-source-legend"><span><b className="cx-level lA">A</b> 公开结构清晰</span><span><b className="cx-level lB">B</b> 条件自动接入</span><span><b className="cx-level lC">C</b> 人工/半自动校验</span></div>
     <section className="cx-source-grid">{companySources.map((source) => <article key={source.name}>
       <div className="cx-source-top"><span className={`cx-level l${source.level}`}>{source.level}</span><div><h2>{source.name}</h2><small>{source.status}</small></div><span className="cx-source-dot" /></div>

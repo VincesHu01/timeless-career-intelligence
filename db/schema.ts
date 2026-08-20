@@ -46,3 +46,12 @@ export const crawlRuns = sqliteTable("crawl_runs", {
   startedAt: text("started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   finishedAt: text("finished_at"),
 });
+
+export const modelHealthChecks = sqliteTable("model_health_checks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  model: text("model").notNull(),
+  status: text("status").notNull(),
+  errorMessage: text("error_message"),
+  checkedAt: text("checked_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
