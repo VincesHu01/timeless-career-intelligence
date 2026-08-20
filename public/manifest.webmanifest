@@ -1,0 +1,10 @@
+{
+  "name": "Cortex Career Intelligence",
+  "short_name": "Cortex",
+  "description": "大厂产品与运营岗位能力雷达",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7ef",
+  "theme_color": "#c8ff2e",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
