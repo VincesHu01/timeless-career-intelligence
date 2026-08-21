@@ -54,6 +54,14 @@ function Logo() {
   return <div className="cx-logo"><span>T</span><div><b>TIMELESS</b><small>CAREER INTELLIGENCE</small></div></div>;
 }
 
+function CompanyLogo({ name, className="" }: { name:string; className?:string }) {
+  const source = companySources.find((item) => item.name === name);
+  const [failed, setFailed] = useState(false);
+  return <span className={`cx-company-logo ${className}`} title={name}>
+    {!failed && source?.logo ? <img src={source.logo} alt={`${name} logo`} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <b>{source?.short.slice(0,2) || name.slice(0,1)}</b>}
+  </span>;
+}
+
 export default function CortexApp() {
   const [view, setView] = useState<View>("overview");
   const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
@@ -160,7 +168,14 @@ export default function CortexApp() {
       const data = await response.json() as { error?:string; message?:string; retryAfterSeconds?:number };
       if (!response.ok) throw new Error(data.message || (data.error === "cooldown" ? `${name} 刚完成采集，请稍后重试` : data.error || "提交失败"));
       const result = data as { result?:{ accepted?:number; status?:string }; error?:string };
-      setToast(result.result?.status === "success" ? `${name} 已更新，新增/更新 ${result.result.accepted || 0} 条证据记录` : `${name} 自动检查未取得足够的逐字证据，未写入推断内容，已转人工复核`);
+      const statusMessage:Record<string,string> = {
+        no_matching_jobs:`${name} 官方公开数据中本轮没有目标产品/运营岗位`,
+        needs_review:`${name} 找到候选岗位，但部分原文证据需要复核`,
+        requires_browser:`${name} 要求浏览器会话校验（HTTP 412），没有被误判为无岗位`,
+        source_moved:`${name} 的旧入口已迁移（HTTP 404），已停止使用该地址`,
+        needs_adapter:`${name} 是动态页面，正在等待公开数据接口适配`,
+      };
+      setToast(result.result?.status === "success" ? `${name} 已更新，新增/更新 ${result.result.accepted || 0} 条证据记录` : statusMessage[result.result?.status || ""] || `${name} 本轮检查未完成，请查看数据源详情`);
       await loadMarketData();
     } catch (reason) {
       setToast(reason instanceof Error ? reason.message : "更新请求暂时无法提交");
@@ -240,7 +255,7 @@ export default function CortexApp() {
         <div className="cx-side-card">
           <span>WEEKLY BRIEF / 34</span>
           <strong>本周招聘<br />证据已更新</strong>
-          <p>8 条可核验样本<br />13 家源站状态</p>
+          <p>{jobs.length} 条证据记录<br />{companySources.length} 家源站状态</p>
           <button onClick={() => navigate("sources")}>查看覆盖情况 →</button>
         </div>
         <div className="cx-sidebar-foot"><span className="cx-pulse" /> 数据诚实模式已开启</div>
@@ -269,7 +284,7 @@ export default function CortexApp() {
           {view === "matrix" && <MatrixView jobs={jobs} onJob={setSelectedJob} />}
           {view === "jobs" && <JobsView jobs={filteredJobs} query={query} company={company} track={track} onCompany={setCompany} onTrack={setTrack} onJob={setSelectedJob} />}
           {view === "weekly" && <WeeklyView report={weeklyReport} session={session} onReport={setWeeklyReport} onToast={setToast} />}
-          {view === "learn" && <LearnView reviews={reviews} onReview={completeReview} onNotify={enableNotifications} />}
+          {view === "learn" && <LearnView jobs={jobs} reviews={reviews} onReview={completeReview} onNotify={enableNotifications} />}
           {view === "sources" && <SourcesView sourceRuns={sourceRuns} onRefresh={requestRefresh} onTestModel={testModel} modelStatus={modelStatus} />}
         </main>
 
@@ -298,18 +313,18 @@ function Overview({ jobs, onNavigate, onJob, onRefresh }: { jobs:JobRecord[]; on
       <div className="cx-hero-copy">
         <div className="cx-kicker"><i /> MARKET SIGNAL / 2026.08.21</div>
         <h1>招聘市场不会给你答案，<br /><em>Timeless</em> 给你证据。</h1>
-        <p>追踪 13 家互联网公司，只分析产品与目标运营岗位。每一个结论都可以回到官方职位、原文证据与核验时间。</p>
+        <p>追踪 {companySources.length} 家互联网与 AI 公司，只分析产品与目标运营岗位。每一个结论都可以回到官方职位、原文证据与核验时间。</p>
         <div className="cx-hero-buttons"><button onClick={() => onNavigate("matrix")}>查看能力透视 <b>↗</b></button><button onClick={() => onNavigate("jobs")}>浏览真实样本</button></div>
-        <div className="cx-trust-row"><span><b>13</b> 家目标公司</span><span><b>{jobs.length}</b> 条证据记录</span><span><b>0</b> 条无来源结论</span></div>
+        <div className="cx-trust-row"><span><b>{companySources.length}</b> 家目标公司</span><span><b>{jobs.length}</b> 条证据记录</span><span><b>0</b> 条无来源结论</span></div>
       </div>
       <div className="cx-orbit-card">
         <div className="cx-orbit-head"><span>REAL-TIME SOURCE MAP</span><b><i /> LIVE</b></div>
         <div className="cx-orbit">
           <div className="cx-orbit-ring ring-one" /><div className="cx-orbit-ring ring-two" />
           <div className="cx-core"><strong>{gradeA}</strong><span>A级源站</span></div>
-          {companySources.slice(0,8).map((source,index) => <i key={source.name} className={`cx-node n${index+1}`} title={source.name}>{source.short.slice(0,1)}</i>)}
+          {companySources.slice(-8).map((source,index) => <CompanyLogo key={source.name} name={source.name} className={`cx-node n${index+1}`} />)}
         </div>
-        <div className="cx-orbit-foot"><span>公开结构清晰</span><strong>{gradeA} / 13</strong></div>
+        <div className="cx-orbit-foot"><span>公开结构清晰</span><strong>{gradeA} / {companySources.length}</strong></div>
       </div>
     </section>
 
@@ -325,7 +340,7 @@ function Overview({ jobs, onNavigate, onJob, onRefresh }: { jobs:JobRecord[]; on
         <div className="cx-panel-head"><div><span>LATEST EVIDENCE</span><h2>最新可核验岗位</h2></div><button onClick={() => onNavigate("jobs")}>查看全部 →</button></div>
         <div className="cx-job-rows">
           {jobs.slice(0,4).map((job) => <button key={job.id} onClick={() => onJob(job)}>
-            <span className="cx-company-badge">{job.company.slice(0,1)}</span>
+            <CompanyLogo name={job.company} />
             <span className="cx-job-main"><b>{job.title}</b><small>{job.company} · {job.track} · {job.location}</small></span>
             <span className={`cx-status ${job.status === "在招" ? "live" : "review"}`}>{job.status}</span><i>↗</i>
           </button>)}
@@ -334,16 +349,16 @@ function Overview({ jobs, onNavigate, onJob, onRefresh }: { jobs:JobRecord[]; on
       <div className="cx-panel cx-signal-list">
         <div className="cx-panel-head"><div><span>WHAT CHANGED</span><h2>证据快讯</h2></div><small>不是市场推断</small></div>
         <ol>
-          <li><i>01</i><div><b>百度 AI 产品经理</b><p>JD 明确要求大模型落地、人机协作与 AI 工具使用。</p></div></li>
-          <li><i>02</i><div><b>阿里 2027 产品实习</b><p>明确强调用户研究、PRD、数据指标与跨团队交付。</p></div></li>
-          <li><i>03</i><div><b>网易游戏 2027 校招</b><p>产品策划、运营与 PM 已进入官方招聘项目范围。</p></div></li>
+          <li><i>01</i><div><b>DeepSeek AI 产品经理</b><p>Agent Harness 方向明确要求 MCP、Memory、Subagent、Multi-Agent 与 Vibe Coding。</p></div></li>
+          <li><i>02</i><div><b>智谱 AI 运营校招</b><p>官网明确要求结合大模型技术设计创新 AI 解决方案。</p></div></li>
+          <li><i>03</i><div><b>Kimi 产品与用户运营</b><p>官网已确认校招方向；完整职责未公开，因此暂不扩写技术栈。</p></div></li>
         </ol>
       </div>
     </section>
 
     <section className="cx-company-health">
-      <div className="cx-panel-head"><div><span>SOURCE HEALTH</span><h2>13 家公司覆盖状态</h2></div><button onClick={() => onNavigate("sources")}>数据源审计 →</button></div>
-      <div className="cx-health-grid">{companySources.slice(0,6).map((source) => <article key={source.name}><div><span className={`cx-level l${source.level}`}>{source.level}</span><b>{source.name}</b></div><small>{source.status}</small><button onClick={() => onRefresh(source.name)}>请求更新</button></article>)}</div>
+      <div className="cx-panel-head"><div><span>SOURCE HEALTH</span><h2>{companySources.length} 家公司覆盖状态</h2></div><button onClick={() => onNavigate("sources")}>数据源审计 →</button></div>
+      <div className="cx-health-grid">{companySources.slice(-6).map((source) => <article key={source.name}><div><CompanyLogo name={source.name} /><b>{source.name}</b></div><small>{source.status}</small><button onClick={() => onRefresh(source.name)}>请求更新</button></article>)}</div>
     </section>
   </>;
 }
@@ -423,7 +438,7 @@ function JobsView({ jobs, query, company, track, onCompany, onTrack, onJob }: { 
       <span>{query ? `关键词「${query}」· ` : ""}{jobs.length} 条结果</span>
     </div>
     <section className="cx-job-grid">{jobs.map((job) => <article key={job.id}>
-      <div className="cx-job-card-top"><span className="cx-company-badge">{job.company.slice(0,1)}</span><div><b>{job.company}</b><small>{job.sourceTier}</small></div><span className={`cx-status ${job.status === "在招" ? "live" : job.status === "招聘项目" ? "program" : "review"}`}>{job.status}</span></div>
+      <div className="cx-job-card-top"><CompanyLogo name={job.company} /><div><b>{job.company}</b><small>{job.sourceTier}</small></div><span className={`cx-status ${job.status === "在招" ? "live" : job.status === "招聘项目" ? "program" : "review"}`}>{job.status}</span></div>
       <h2>{job.title}</h2><p>{job.summary}</p>
       <div className="cx-tags">{[...job.ai,...job.skills].slice(0,5).map((tag) => <span key={tag}>{tag}</span>)}{job.skills.length + job.ai.length === 0 && <span className="muted">职责待同步</span>}</div>
       <div className="cx-job-meta"><span>⌖ {job.location}</span><span>◷ {job.date}</span></div>
@@ -433,14 +448,43 @@ function JobsView({ jobs, query, company, track, onCompany, onTrack, onJob }: { 
   </>;
 }
 
-function LearnView({ reviews, onReview, onNotify }: { reviews:Record<string,number>; onReview:(id:string,q:number)=>void; onNotify:()=>void }) {
-  const [selected, setSelected] = useState(knowledgeCards[0]);
+function LearnView({ jobs, reviews, onReview, onNotify }: { jobs:JobRecord[]; reviews:Record<string,number>; onReview:(id:string,q:number)=>void; onNotify:()=>void }) {
+  const [selectedId, setSelectedId] = useState(knowledgeCards[0].id);
+  const aiJobs = useMemo(() => jobs.filter((job) => job.ai.length > 0 || /AI|Agent|大模型|模型|智能体/i.test(`${job.title}${job.summary}${job.evidence.join("")}`)), [jobs]);
+  const modules = useMemo(() => {
+    const aliases:Record<string,string[]> = {
+      transformer:["Transformer","自回归","Attention","位置编码","KV Cache","Tokenizer","采样"],
+      context:["上下文","Context","Token 预算","压缩","截断"],
+      memory:["Memory","记忆","召回","过期","冲突"],
+      planning:["Agent","Planning","ReAct","Subagent","Multi-Agent","任务规划","反思"],
+      tools:["Tool Use","Function Calling","Skill","MCP","工具"],
+      evaluation:["评测","Badcase","指标","归因","数据规范"],
+      posttraining:["SFT","LoRA","DPO","GRPO","持续预训练","模型训练","后训练"],
+      rag:["RAG","Embedding","召回","重排","引用","AI搜索"],
+      python_sql:["Python","SQL","Vibe Coding","coding","数据分析","实验"],
+    };
+    return knowledgeCards.map((card) => {
+      const terms = [...card.tags,...(aliases[card.id] || [])];
+      const matches = aiJobs.filter((job) => {
+        const text = `${job.title} ${job.summary} ${job.ai.join(" ")} ${job.skills.join(" ")} ${job.evidence.join(" ")}`.toLowerCase();
+        return terms.some((term) => text.includes(term.toLowerCase()));
+      });
+      return { ...card, matches, relevance:matches.length };
+    }).sort((a,b) => b.relevance-a.relevance || a.title.localeCompare(b.title,"zh-CN"));
+  },[aiJobs]);
+  const selected = modules.find((card) => card.id === selectedId) || modules[0];
+  const companies = new Set(aiJobs.map((job) => job.company));
+  const signalCounts = useMemo(() => {
+    const counts = new Map<string,number>();
+    aiJobs.forEach((job) => job.ai.forEach((skill) => counts.set(skill,(counts.get(skill) || 0)+1)));
+    return [...counts.entries()].sort((a,b) => b[1]-a[1]).slice(0,6);
+  },[aiJobs]);
   return <>
-    <PageTitle eyebrow="04 / AI STACK LAB" title="从岗位原文到可验证的 AI 硬能力" desc="不是术语清单：讲清原理、产品决策、动手实验与简历证据，再用间隔复习把它变成能在面试中讲透的能力。" actions={<button className="cx-primary" onClick={onNotify}>开启浏览器提醒 ♢</button>} />
+    <PageTitle eyebrow="04 / AI STACK LAB" title="从大量岗位原文生成 AI 能力地图" desc="每次岗位更新后自动重算：先汇聚全部产品/运营 JD 的 AI 证据，再解释概念、业务用法、动手实验与简历证明；腾讯岗位只是证据之一。" actions={<button className="cx-primary" onClick={onNotify}>开启浏览器提醒 ♢</button>} />
     <section className="cx-case-study">
-      <div><span>OFFICIAL JD DECONSTRUCTION</span><h2>腾讯 WorkBuddy Agent 策略产品经理</h2><p>业务正从单轮 AI 助手过渡到长程自主 Agent。岗位判断主要约束已转向上下文组织、记忆管理、任务规划和工具调用，因此产培生不是只写需求，而要从线上 badcase 出发做归因、实验、评测与数据闭环。</p></div>
-      <div className="cx-case-flow"><span>业务阶段<b>长程 Agent</b></span><i>→</i><span>核心约束<b>运行策略</b></span><i>→</i><span>工作方法<b>Badcase 实验</b></span><i>→</i><span>结果证据<b>线上指标</b></span></div>
-      <a href="https://join.qq.com/post_detail.html?postid=1285066789650506781" target="_blank" rel="noreferrer">查看腾讯官方岗位 ↗</a>
+      <div><span>LIVE MULTI-JD SYNTHESIS</span><h2>{aiJobs.length} 条 AI 岗位证据正在驱动课程</h2><p>覆盖 {companies.size} 家公司。系统只把 JD 原文明示的技术词关联到课程，不把“公司做 AI”推断成“该岗位要求某技术”。采集增加时，相关岗位数、公司覆盖和证据链接都会同步变化。</p></div>
+      <div className="cx-signal-cloud">{signalCounts.map(([name,count]) => <span key={name}>{name}<b>{count} JD</b></span>)}{signalCounts.length === 0 && <span>等待更多岗位证据<b>0 JD</b></span>}</div>
+      <button onClick={() => document.querySelector(".cx-course-list")?.scrollIntoView({behavior:"smooth"})}>查看实时能力地图 ↓</button>
     </section>
     <section className="cx-learn-summary">
       <div><span>今日待复习</span><strong>{knowledgeCards.length - Object.keys(reviews).length}</strong><small>按照 1 / 2 / 4 / 7 / 15 / 30 天安排</small></div>
@@ -449,9 +493,9 @@ function LearnView({ reviews, onReview, onNotify }: { reviews:Record<string,numb
     </section>
     <div className="cx-learn-layout">
       <section className="cx-course-list">
-        <div className="cx-panel-head"><div><span>KNOWLEDGE MAP</span><h2>九层技术栈</h2></div><small>腾讯官方 JD 驱动</small></div>
-        {knowledgeCards.map((card,index) => <button key={card.id} className={selected.id === card.id ? "active" : ""} onClick={() => setSelected(card)}>
-          <i>{String(index+1).padStart(2,"0")}</i><div><span>{card.level} · {card.minutes} MIN</span><b>{card.title}</b><p>{card.desc}</p></div><strong>{card.relevance}<small>% 相关</small></strong>
+        <div className="cx-panel-head"><div><span>LIVE KNOWLEDGE MAP</span><h2>岗位驱动技术栈</h2></div><small>{aiJobs.length} 条 AI 岗位实时重算</small></div>
+        {modules.map((card,index) => <button key={card.id} className={selected.id === card.id ? "active" : ""} onClick={() => setSelectedId(card.id)}>
+          <i>{String(index+1).padStart(2,"0")}</i><div><span>{card.level} · {card.minutes} MIN</span><b>{card.title}</b><p>{card.desc}</p></div><strong>{card.relevance}<small>条 JD</small></strong>
         </button>)}
       </section>
       <aside className="cx-panel cx-lesson">
@@ -460,11 +504,11 @@ function LearnView({ reviews, onReview, onNotify }: { reviews:Record<string,numb
         <div className="cx-lesson-section"><h3>02 · 它怎样工作</h3><p>{selected.mechanism}</p></div>
         <div className="cx-lesson-section"><h3>03 · 非技术岗具体怎么用</h3><p>{selected.productUse}</p></div>
         <div className="cx-mental-model"><span>5 MIN MENTAL MODEL</span><p>{selected.mentalModel}</p></div>
-        <div className="cx-jd-signal"><span>岗位为什么要求它</span><p>{selected.jdSignal}</p></div>
+        <div className="cx-jd-signal"><span>当前岗位为什么要求它</span><p>{selected.matches.length ? `${[...new Set(selected.matches.map((job) => job.company))].join("、")} 的 ${selected.matches.slice(0,3).map((job) => job.title).join("、")} 等岗位在职责或要求中明确出现了本模块信号。下面可逐条回到官方原文核验。` : "当前已采集岗位尚未明确出现这一技术信号。课程保留为基础知识，但不会伪装成实时招聘趋势。"}</p></div>
         <div className="cx-lesson-tags">{selected.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
         <div className="cx-mini-task"><span>HANDS-ON PROJECT</span><b>{selected.project}</b></div>
         <div className="cx-resume-proof"><span>简历证据应该怎样写</span><p>{selected.resumeProof}</p></div>
-        <a href={selected.source} target="_blank" rel="noreferrer">回到腾讯官方岗位证据 ↗</a>
+        <div className="cx-live-evidence"><span>本模块的实时岗位证据</span>{selected.matches.slice(0,6).map((job) => <a key={job.id} href={job.sourceUrl} target="_blank" rel="noreferrer"><CompanyLogo name={job.company} /><b>{job.company} · {job.title}</b><i>官方原文 ↗</i></a>)}{selected.matches.length === 0 && <p>暂时没有原文明示记录；后续采集会自动补入。</p>}</div>
         <div className="cx-review-actions"><span>这次掌握得怎样？</span><button onClick={() => onReview(selected.id,1)}>需要重学</button><button onClick={() => onReview(selected.id,3)}>基本掌握</button><button className="good" onClick={() => onReview(selected.id,5)}>可以讲清楚</button></div>
       </aside>
     </div>
@@ -475,14 +519,13 @@ function SourcesView({ sourceRuns, onRefresh, onTestModel, modelStatus }: { sour
   return <>
     <PageTitle eyebrow="05 / SOURCE AUDIT" title="每条数据经历了什么" desc="这里展示采集能否自动完成、上次检查结果和没有写入的原因；等级只代表自动化条件，不评价公司。" actions={<button className="cx-primary" onClick={onTestModel}>测试 AI 连接 · {modelStatus}</button>} />
     <section className="cx-pipeline"><div><i>01</i><b>读取官方公开页</b><span>不绕过登录、验证码与访问限制</span></div><em>→</em><div><i>02</i><b>筛选目标岗位</b><span>排除内容、新媒体与直播运营</span></div><em>→</em><div><i>03</i><b>逐字证据校验</b><span>标题与片段必须在原文存在</span></div><em>→</em><div><i>04</i><b>写入或转复核</b><span>证据不足就不生成结论</span></div></section>
-    <div className="cx-status-guide"><span><b>已更新</b> 已有证据写入岗位库</span><span><b>人工复核</b> 自动页没有足够文本，未写入推断</span><span><b>失败</b> 源站或连接异常，可在 3 分钟后重试</span><span><b>已下线</b> 仅在官方链接明确返回 404 / 410 时标记</span></div>
-    <section className="cx-source-grid">{companySources.map((source) => { const run=sourceRuns[source.name]; const status=run?.status === "success" ? "已更新" : run?.status === "needs_review" ? "人工复核" : run?.status === "failed" ? "连接失败" : "等待首次检查"; return <article key={source.name}>
-      <div className="cx-source-top"><span className={`cx-level l${source.level}`}>{source.level}</span><div><h2>{source.name}</h2><small>{source.status}</small></div><span className={`cx-run-state s-${run?.status || "idle"}`}>{status}</span></div>
+    <div className="cx-status-guide"><span><b>已更新</b> 逐字证据已写入岗位库</span><span><b>本轮无目标岗</b> 页面可读，但没有合格产品/运营岗位</span><span><b>需浏览器校验</b> HTTP 412，不等于拒绝采集或没有岗位</span><span><b>入口已迁移</b> HTTP 404，只停用旧入口，不标岗位下线</span></div>
+    <section className="cx-source-grid">{companySources.map((source) => { const run=sourceRuns[source.name]; const labels:Record<string,string>={success:"已更新",needs_review:"证据待复核",no_matching_jobs:"本轮无目标岗",requires_browser:"需浏览器校验",source_moved:"入口已迁移",needs_adapter:"待接口适配",failed:"连接失败"}; const status=labels[run?.status || ""] || "等待首次检查"; return <article key={source.name}>
+      <div className="cx-source-top"><CompanyLogo name={source.name} /><div><h2>{source.name}</h2><small>{source.status}</small></div><span className={`cx-run-state s-${run?.status || "idle"}`}>{status}</span></div>
       <p>{source.note}</p>
       <div className="cx-run-detail"><b>{run ? `最近检查 · ${run.checkedAt.slice(0,16).replace("T"," ")}` : "尚无自动采集记录"}</b><span>{run?.status === "success" ? `本次写入/更新 ${run.discovered} 条通过证据校验的岗位` : run?.message || "点击请求更新后，状态会显示在这里"}</span></div>
       <div className="cx-source-actions"><a href={source.url} target="_blank" rel="noreferrer">核对官方页 ↗</a><button onClick={() => onRefresh(source.name)}>立即检查</button></div>
     </article>; })}</section>
-    <section className="cx-compliance"><div><span>BLOCKED BY POLICY</span><h2>BOSS 直聘与实习僧</h2></div><p>两家平台协议均限制未经授权的爬虫或批量抓取。连接器保留为“待授权”，取得覆盖聚合用途的书面许可或官方 API 前不会启用。</p><div><a href="https://www.zhipin.com/web/common/protocol/protocol-2019-09-30.html" target="_blank" rel="noreferrer">BOSS 协议 ↗</a><a href="https://www.shixiseng.com/rule" target="_blank" rel="noreferrer">实习僧协议 ↗</a></div></section>
   </>;
 }
 

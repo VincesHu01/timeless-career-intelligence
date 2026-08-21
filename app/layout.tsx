@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   description: "用真实招聘证据看懂大厂产品与运营岗位，并把 AI 能力转化为可执行的学习路径。",
   openGraph: {
     title: "Timeless｜招聘证据 · 能力透视 · AI 学习",
-    description: "追踪 13 家中国互联网公司，用可回溯证据看懂产品与目标运营岗位。",
+    description: "追踪 16 家中国互联网与 AI 公司，用可回溯证据看懂产品与目标运营岗位。",
     type: "website",
     locale: "zh_CN",
     images: [{ url:"/cortex-social.png", width:1731, height:909, alt:"Timeless 招聘证据与能力透视" }],
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  themeColor: "#c8ff2e",
+  themeColor: "#10142a",
   width: "device-width",
   initialScale: 1,
 };

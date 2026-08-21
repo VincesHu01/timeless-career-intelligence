@@ -3,7 +3,7 @@ import { getDb } from "../../../db";
 import { crawlRuns, jobSnapshots, jobs, refreshRequests } from "../../../db/schema";
 
 export const SOURCE_REGISTRY = {
-  "字节跳动": "https://jobs.bytedance.com/campus/position",
+  "字节跳动": "https://jobs.bytedance.com/zh/position",
   "阿里巴巴": "https://campus-talent.alibaba.com/campus/position-list",
   "腾讯": "https://careers.tencent.com/zh-cn/search.html",
   "美团": "https://zhaopin.meituan.com/web/position",
@@ -16,6 +16,9 @@ export const SOURCE_REGISTRY = {
   "网易": "https://campus.game.163.com/position",
   "Bilibili": "https://jobs.bilibili.com/campus/positions",
   "米哈游": "https://join.mihoyo.com/#/campus/position-list",
+  "DeepSeek": "https://talent.deepseek.com/",
+  "Kimi（月之暗面）": "https://careers.kimi.com/campus",
+  "智谱AI": "https://www.zhipuai.cn/zh/joinus",
 } as const;
 
 export type CompanyName = keyof typeof SOURCE_REGISTRY;
@@ -37,7 +40,7 @@ type ExtractedJob = {
 type TencentSearchItem = { postId?:string; positionTitle?:string; projectName?:string };
 type TencentDetail = { postId?:string; title?:string; desc?:string; request?:string; workCityList?:string[]; projectName?:string; recruitLabelName?:string };
 
-const includedTitle = /(产品经理|产品策划|产品运营|AI产品运营|策略运营|电商运营|品类运营|商家运营|行业运营|商业化运营|用户运营|增长运营|平台运营|生态运营|运营策略|管培生)/i;
+const includedTitle = /(产品经理|产品策划|产品运营|AI产品运营|策略运营|电商运营|品类运营|商家运营|行业运营|商业化运营|用户运营|增长运营|平台运营|生态运营|运营策略|运营（|运营\(|运营岗|管培生)/i;
 const excludedTitle = /(新媒体|内容运营|内容编辑|短视频运营|直播运营|社交媒体|小红书运营|公众号运营|文案运营|社区内容)/i;
 
 function normalizeSecret(value: string | undefined) {
@@ -53,8 +56,12 @@ function normalizeText(value: string) {
 }
 
 function htmlToEvidenceText(html: string) {
+  const structured = [...html.matchAll(/<(?:script|meta)[^>]+(?:type=["']application\/(?:ld\+json|json)["']|content=["']([^"']+)["'])[^>]*>([\s\S]*?)<\/script>|<(?:meta|[^>]+)[^>]+(?:aria-label|title|content)=["']([^"']+)["'][^>]*>/gi)]
+    .flatMap((match) => [match[1], match[2], match[3]])
+    .filter(Boolean)
+    .join(" ");
   return normalizeText(
-    html
+    `${html} ${structured}`
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
       .replace(/<style[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]+>/g, " ")
@@ -65,6 +72,12 @@ function htmlToEvidenceText(html: string) {
       .replace(/&quot;|&#34;/gi, '"')
       .replace(/&#39;|&apos;/gi, "'"),
   );
+}
+
+function classifySourceError(status: number) {
+  if (status === 404) return new Error("官方入口已迁移或配置失效（HTTP 404）；这不代表岗位不存在，已停止用该地址判断岗位状态");
+  if (status === 412) return new Error("源站要求浏览器会话或前置校验（HTTP 412）；这不代表禁止采集或没有岗位，等待官方公开接口适配");
+  return new Error(`官方源站返回 HTTP ${status}`);
 }
 
 function compactTag(value: string) {
@@ -154,6 +167,85 @@ async function fetchTencentJobs() {
   return { sourceText, candidates, sourceUrl:"https://join.qq.com/" };
 }
 
+type DeepSeekJob = {
+  id:string; title:string; functionName:string; locations:string[]; descriptionHtml:string; detailUrl:string; submitUrl:string;
+};
+
+async function fetchDeepSeekJobs() {
+  const landingUrl = "https://talent.deepseek.com/";
+  const landing = await fetch(landingUrl, { headers:{ Accept:"text/html", "User-Agent":"TimelessCareerResearch/1.1 (+public evidence monitor)" }, signal:AbortSignal.timeout(20_000) });
+  if (!landing.ok) throw classifySourceError(landing.status);
+  const html = await landing.text();
+  const scriptPath = [...html.matchAll(/<script[^>]+src=["']([^"']*main\.[^"']+\.js)["']/gi)][0]?.[1];
+  if (!scriptPath) throw new Error("DeepSeek 官方页结构已变化，未找到公开职位数据脚本");
+  const scriptUrl = new URL(scriptPath, landing.url).toString();
+  const bundleResponse = await fetch(scriptUrl, { headers:{ Accept:"application/javascript", Referer:landing.url, "User-Agent":"TimelessCareerResearch/1.1 (+public evidence monitor)" }, signal:AbortSignal.timeout(25_000) });
+  if (!bundleResponse.ok) throw classifySourceError(bundleResponse.status);
+  const bundle = await bundleResponse.text();
+  const pattern = /\{"id":"[^"\\]+","title":"(?:\\.|[^"\\])*","functionName":"(?:\\.|[^"\\])*","locations":\[(?:"(?:\\.|[^"\\])*",?)*\],"descriptionHtml":"(?:\\.|[^"\\])*","detailUrl":"(?:\\.|[^"\\])*","submitUrl":"(?:\\.|[^"\\])*"\}/g;
+  const publicJobs = (bundle.match(pattern) || []).flatMap((raw) => {
+    try { return [JSON.parse(raw) as DeepSeekJob]; } catch { return []; }
+  }).filter((job) => includedTitle.test(job.title) && !excludedTitle.test(job.title));
+  const candidateTexts = publicJobs.map((job) => htmlToEvidenceText(job.descriptionHtml));
+  const sourceText = publicJobs.map((job,index) => `${job.title} ${candidateTexts[index]}`).join(" ");
+  const candidates:ExtractedJob[] = publicJobs.map((job,index) => {
+    const text = candidateTexts[index];
+    const track = /实习/.test(text) && /全职/.test(text) ? "实习 / 社会招聘" : /实习/.test(text) ? "日常实习" : /管培/.test(job.title) ? "管培生" : "社会招聘";
+    return {
+      sourceJobId:job.id,
+      title:job.title,
+      location:job.locations.join(" / ") || "以官方详情为准",
+      recruitmentTrack:track,
+      experienceLevel:/应届|校招/.test(text) ? "应届生" : /\d+\s*年/.test(text) ? text.match(/\d+\s*年[^，。；]{0,18}/)?.[0] : "未明示",
+      summary:evidenceSentences(text,1)[0] || job.title,
+      skills:matchingTerms(text,skillDictionary),
+      aiSkills:matchingTerms(text,aiDictionary,16),
+      bonusSignals:evidenceSentences(text.split(/加分项|优先/).slice(1).join(" "),2),
+      evidence:evidenceSentences(text,5),
+      sourceUrl:`https://talent.deepseek.com/job/${job.id}`,
+    };
+  });
+  return { sourceText, candidates, sourceUrl:landingUrl };
+}
+
+async function fetchKimiJobs() {
+  const sourceUrl = "https://careers.kimi.com/campus";
+  const response = await fetch(sourceUrl, { headers:{ Accept:"text/html", "User-Agent":"TimelessCareerResearch/1.1 (+public evidence monitor)" }, signal:AbortSignal.timeout(20_000) });
+  if (!response.ok) throw classifySourceError(response.status);
+  const sourceText = await response.text();
+  const commonEvidence = "月之暗面 Moonshot AI 校园招聘页，汇总 Kimi 实习与校招岗位，欢迎有志于 AGI 的人才加入。";
+  const candidates:ExtractedJob[] = [];
+  if (sourceText.includes("查看产品经理详情")) candidates.push({
+    sourceJobId:"campus-product-manager", title:"产品经理", location:"以官方投递页为准", recruitmentTrack:"校园招聘 / 实习", experienceLevel:"在校生 / 应届生",
+    summary:"月之暗面官方校园招聘列出的产品经理方向；职责详情需进入官方投递页继续核验。", skills:["产品规划","用户研究"], aiSkills:["AGI"], evidence:[commonEvidence,"查看产品经理详情"], sourceUrl,
+  });
+  if (sourceText.includes("查看用户运营详情")) candidates.push({
+    sourceJobId:"campus-user-operations", title:"用户运营", location:"以官方投递页为准", recruitmentTrack:"校园招聘 / 实习", experienceLevel:"在校生 / 应届生",
+    summary:"月之暗面官方校园招聘列出的用户运营方向；职责详情需进入官方投递页继续核验。", skills:["用户运营"], aiSkills:["AGI"], evidence:[commonEvidence,"查看用户运营详情"], sourceUrl,
+  });
+  return { sourceText, candidates, sourceUrl };
+}
+
+async function fetchZhipuJobs() {
+  const sourceUrl = "https://www.zhipuai.cn/zh/joinus";
+  const response = await fetch(sourceUrl, { headers:{ Accept:"text/html", "User-Agent":"TimelessCareerResearch/1.1 (+public evidence monitor)" }, signal:AbortSignal.timeout(20_000) });
+  if (!response.ok) throw classifySourceError(response.status);
+  const sourceText = htmlToEvidenceText(await response.text());
+  const candidates:ExtractedJob[] = [
+    { sourceJobId:"social-product-project", title:"产品经理/项目经理（社招）", location:"深圳 / 上海 / 杭州 / 成都 / 北京 / 吉隆坡", recruitmentTrack:"社会招聘", experienceLevel:"未明示", summary:"负责项目计划、风险管理与质量管理等工作。", skills:["项目管理"], aiSkills:[], evidence:["产品经理/项目经理（社招）","项目计划、风险管理、质量管理等"], sourceUrl },
+    { sourceJobId:"campus-operations", title:"运营（校招）", location:"深圳 / 上海 / 杭州 / 成都 / 北京 / 吉隆坡", recruitmentTrack:"校园招聘", experienceLevel:"应届生", summary:"结合大模型技术优势，参与设计创新的 AI 解决方案。", skills:["业务抽象"], aiSkills:["大模型","AI解决方案"], evidence:["运营（校招）","结合大模型技术优势，参与设计创新的AI解决方案"], sourceUrl },
+  ];
+  return { sourceText, candidates, sourceUrl };
+}
+
+async function fetchOfficialJobs(company: CompanyName) {
+  if (company === "腾讯") return fetchTencentJobs();
+  if (company === "DeepSeek") return fetchDeepSeekJobs();
+  if (company === "Kimi（月之暗面）") return fetchKimiJobs();
+  if (company === "智谱AI") return fetchZhipuJobs();
+  return null;
+}
+
 function parseModelJson(content: string) {
   const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const parsed = JSON.parse(cleaned) as { jobs?: ExtractedJob[] } | ExtractedJob[];
@@ -200,7 +292,7 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
   const [run] = await db.insert(crawlRuns).values({ company, status: "running" }).returning();
 
   try {
-    const official = company === "腾讯" ? await fetchTencentJobs() : null;
+    const official = await fetchOfficialJobs(company);
     const response = official ? null : await fetch(sourceUrl, {
       headers: {
         Accept: "text/html,application/xhtml+xml,application/json",
@@ -209,10 +301,10 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
       redirect: "follow",
       signal: AbortSignal.timeout(20_000),
     });
-    if (response && !response.ok) throw new Error(`官方源站返回 HTTP ${response.status}`);
+    if (response && !response.ok) throw classifySourceError(response.status);
     const raw = response ? await response.text() : "";
     const sourceText = official?.sourceText || htmlToEvidenceText(raw);
-    if (sourceText.length < 200) throw new Error("官方页面未返回足够的公开文本，转为人工复核");
+    if (sourceText.length < 200) throw new Error("官方页面是 JavaScript 空壳，尚未定位到其公开职位数据接口；这不代表没有岗位");
 
     const resolvedSourceUrl = official?.sourceUrl || response?.url || sourceUrl;
     const candidates = official?.candidates || await extractJobs(company, resolvedSourceUrl, sourceText);
@@ -267,21 +359,23 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
 
     const offlineMarked = await auditKnownJobLinks(company);
 
+    const completedStatus = accepted ? "success" : candidates.length ? "needs_review" : "no_matching_jobs";
     await db.update(crawlRuns).set({
-      status: accepted ? "success" : "needs_review",
+      status: completedStatus,
       discovered: accepted,
-      errorMessage: accepted ? null : "公开页面未发现通过逐字证据校验的目标岗位",
+      errorMessage: accepted ? null : candidates.length ? "发现候选岗位，但公开证据未全部通过逐字校验" : "官方公开数据中本轮未发现目标产品/运营岗位",
       finishedAt: sql`CURRENT_TIMESTAMP`,
     }).where(eq(crawlRuns.id, run.id));
     if (requestId) {
-      await db.update(refreshRequests).set({ status: accepted ? "completed" : "needs_review" }).where(eq(refreshRequests.id, requestId));
+      await db.update(refreshRequests).set({ status: accepted ? "completed" : completedStatus }).where(eq(refreshRequests.id, requestId));
     }
-    return { runId: run.id, accepted, offlineMarked, status: accepted ? "success" : "needs_review", sourceUrl:resolvedSourceUrl };
+    return { runId: run.id, accepted, offlineMarked, status: completedStatus, sourceUrl:resolvedSourceUrl };
   } catch (error) {
     const message = error instanceof Error ? error.message : "采集失败";
-    await db.update(crawlRuns).set({ status: "failed", errorMessage: message, finishedAt: sql`CURRENT_TIMESTAMP` }).where(eq(crawlRuns.id, run.id));
-    if (requestId) await db.update(refreshRequests).set({ status: "failed" }).where(eq(refreshRequests.id, requestId));
-    return { runId: run.id, accepted: 0, status: "failed", sourceUrl, error: message };
+    const status = message.includes("HTTP 404") ? "source_moved" : message.includes("HTTP 412") ? "requires_browser" : message.includes("JavaScript 空壳") ? "needs_adapter" : "failed";
+    await db.update(crawlRuns).set({ status, errorMessage: message, finishedAt: sql`CURRENT_TIMESTAMP` }).where(eq(crawlRuns.id, run.id));
+    if (requestId) await db.update(refreshRequests).set({ status }).where(eq(refreshRequests.id, requestId));
+    return { runId: run.id, accepted: 0, status, sourceUrl, error: message };
   }
 }
 

@@ -1,6 +1,7 @@
 export type CompanySource = {
   name: string;
   short: string;
+  logo: string;
   level: "A" | "B" | "C";
   status: string;
   url: string;
@@ -29,19 +30,22 @@ export type JobRecord = {
 };
 
 export const companySources: CompanySource[] = [
-  { name:"字节跳动", short:"字节", level:"A", status:"公开职位页", url:"https://jobs.bytedance.com/campus/", note:"校招、实习与社招需分开采集；职位 ID 可用于版本追踪。" },
-  { name:"阿里巴巴", short:"阿里", level:"A", status:"集团校招公开", url:"https://campus-talent.alibaba.com/", note:"需保留淘天、阿里云、钉钉等招聘业务归属。" },
-  { name:"腾讯", short:"腾讯", level:"B", status:"动态详情页", url:"https://careers.tencent.com/zh-cn/", note:"搜索与详情页公开，但部分字段依赖动态接口。" },
-  { name:"美团", short:"美团", level:"B", status:"项目分类公开", url:"https://zhaopin.meituan.com/", note:"区分日常实习、转正实习、校招、北斗计划与社招。" },
-  { name:"快手", short:"快手", level:"C", status:"JavaScript 站点", url:"https://zhaopin.kuaishou.cn/", note:"无法稳定读取时仅保留官方链接并进入人工校验。" },
-  { name:"百度", short:"百度", level:"A", status:"结构清晰", url:"https://talent.baidu.com/jobs/", note:"公开岗位列表可按招聘项目、职类和城市核验。" },
-  { name:"携程", short:"携程", level:"C", status:"多入口待校验", url:"https://job.ctrip.com/", note:"官网、官方公告与公众号需合并去重，旧页面不作当前依据。" },
-  { name:"京东", short:"京东", level:"A", status:"公开职位列表", url:"https://zhaopin.jd.com/", note:"官方“运营类”较宽，需二次排除销售、运维及内容岗位。" },
-  { name:"拼多多", short:"拼多多", level:"B", status:"校招项目公开", url:"https://careers.pddglobalhr.com/", note:"校招、实习、人才专项与管培生需要分别标注。" },
-  { name:"得物", short:"得物", level:"C", status:"飞书招聘入口", url:"https://poizon.jobs.feishu.cn/", note:"先确认公开页面和使用条款，无法稳定访问时转人工录入。" },
-  { name:"网易", short:"网易", level:"B", status:"游戏校招公开", url:"https://campus.game.163.com/", note:"网易游戏不同事业群需单独标注，产品策划与内容策划分开。" },
-  { name:"Bilibili", short:"B站", level:"C", status:"接口访问受限", url:"https://jobs.bilibili.com/campus/", note:"官方页面可确认，但职位接口当前要求 AppKey，不绕过限制。" },
-  { name:"米哈游", short:"米哈游", level:"B", status:"校招与社招公开", url:"https://join.mihoyo.com/", note:"官网公开招聘项目；职位为 0 时如实记录，不推断岗位。" },
+  { name:"字节跳动", short:"字节", logo:"https://jobs.bytedance.com/favicon.ico", level:"A", status:"官方职位页 + 动态接口", url:"https://jobs.bytedance.com/zh/position", note:"按当前官方入口采集；旧 /campus/position 地址返回 404 时不再误判岗位下线。" },
+  { name:"阿里巴巴", short:"阿里", logo:"https://campus-talent.alibaba.com/favicon.ico", level:"A", status:"集团校招公开", url:"https://campus-talent.alibaba.com/", note:"需保留淘天、阿里云、钉钉等招聘业务归属。" },
+  { name:"腾讯", short:"腾讯", logo:"https://join.qq.com/favicon.ico", level:"A", status:"官方公开搜索与详情接口", url:"https://join.qq.com/", note:"已使用公开搜索与详情接口读取岗位，不再依赖空壳 HTML。" },
+  { name:"美团", short:"美团", logo:"https://zhaopin.meituan.com/favicon.ico", level:"B", status:"项目分类公开", url:"https://zhaopin.meituan.com/", note:"区分日常实习、转正实习、校招、北斗计划与社招。" },
+  { name:"快手", short:"快手", logo:"https://zhaopin.kuaishou.cn/favicon.ico", level:"C", status:"JavaScript 站点", url:"https://zhaopin.kuaishou.cn/", note:"页面空壳与访问校验会分开显示，不再统一写成“文本不足”。" },
+  { name:"百度", short:"百度", logo:"https://talent.baidu.com/favicon.ico", level:"A", status:"结构清晰", url:"https://talent.baidu.com/jobs/", note:"公开岗位列表可按招聘项目、职类和城市核验。" },
+  { name:"携程", short:"携程", logo:"https://job.ctrip.com/favicon.ico", level:"C", status:"多入口待校验", url:"https://job.ctrip.com/", note:"官网、官方公告与公众号需合并去重，旧页面不作当前依据。" },
+  { name:"京东", short:"京东", logo:"https://zhaopin.jd.com/favicon.ico", level:"A", status:"公开职位列表", url:"https://zhaopin.jd.com/", note:"官方“运营类”较宽，需二次排除销售、运维及内容岗位。" },
+  { name:"拼多多", short:"拼多多", logo:"https://careers.pddglobalhr.com/favicon.ico", level:"B", status:"校招项目公开", url:"https://careers.pddglobalhr.com/", note:"校招、实习、人才专项与管培生需要分别标注。" },
+  { name:"得物", short:"得物", logo:"https://poizon.jobs.feishu.cn/favicon.ico", level:"C", status:"飞书招聘入口", url:"https://poizon.jobs.feishu.cn/", note:"公开职位数据可读时采集；登录或验证限制不绕过。" },
+  { name:"网易", short:"网易", logo:"https://campus.game.163.com/favicon.ico", level:"B", status:"游戏校招公开", url:"https://campus.game.163.com/", note:"网易游戏不同事业群需单独标注，产品策划与内容策划分开。" },
+  { name:"Bilibili", short:"B站", logo:"https://jobs.bilibili.com/favicon.ico", level:"C", status:"接口访问受限", url:"https://jobs.bilibili.com/campus/", note:"官方页面可确认，但职位接口当前要求 AppKey，不绕过限制。" },
+  { name:"米哈游", short:"米哈游", logo:"https://join.mihoyo.com/favicon.ico", level:"B", status:"校招与社招公开", url:"https://join.mihoyo.com/", note:"官网公开招聘项目；职位为 0 时如实记录，不推断岗位。" },
+  { name:"DeepSeek", short:"DS", logo:"https://talent.deepseek.com/favicon.ico", level:"A", status:"官方公开职位数据脚本", url:"https://talent.deepseek.com/", note:"专用适配器读取官方页面公开职位对象，可核验单岗原文和岗位 ID。" },
+  { name:"Kimi（月之暗面）", short:"Kimi", logo:"https://careers.kimi.com/favicon.ico", level:"B", status:"官方品牌页 + 投递入口", url:"https://careers.kimi.com/campus", note:"品牌页可确认产品与用户运营方向；职责未公开时不扩写技术要求。" },
+  { name:"智谱AI", short:"智谱", logo:"https://www.zhipuai.cn/favicon.ico", level:"A", status:"官方招聘方向公开", url:"https://www.zhipuai.cn/zh/joinus", note:"官网公开产品/项目经理社招和运营校招方向，逐字保留现有职责。" },
 ];
 
 export const verifiedJobs: JobRecord[] = [
@@ -96,6 +100,25 @@ export const verifiedJobs: JobRecord[] = [
     sourceTier:"A｜官方投递入口+高校公告", sourceUrl:"https://campus.game.163.com/", status:"招聘项目",
     summary:"官方投递项目面向 2027 届毕业生，开放策划、运营、PM 等多类岗位；具体单岗要求以官方职位详情为准。",
     skills:["游戏理解","产品策划","长期运营"], ai:[], evidence:["开放岗位：策划 / 技术 / 美术 / 测试 / 用户体验 / 市场 / 运营 / PM 等多类岗位"],
+  },
+  {
+    id:"DeepSeek-e8f2004c-6599-42cd-b587-176ffc3ff1a3", company:"DeepSeek", title:"AI 产品经理", family:"AI产品/运营", track:"实习 / 社会招聘", location:"北京海淀 / 杭州拱墅", date:"2026-08-21",
+    sourceTier:"S｜DeepSeek 官方招聘", sourceUrl:"https://talent.deepseek.com/job/e8f2004c-6599-42cd-b587-176ffc3ff1a3", status:"在招",
+    summary:"把前沿模型能力转化为真实产品，并分别负责 AI 产品与 Agent Harness 的路线、指标、用户反馈和模型协同。",
+    skills:["产品规划","用户洞察","数据分析","项目管理"], ai:["Agent","KV Cache","Tool Use","Planning","MCP","Memory","Subagent","Multi-Agent"],
+    evidence:["招聘方向 【实习/全职】 ： AI 产品方向、Agent Harness 产品方向","是 AI 产品深度用户，对模型能力边界、不同产品的体验差异和用户场景有真实体感","能够使用 vibe coding 写代码，不一定需要技术背景","理解 LLM API、KV Cache、Agent Loop、Tool Use、Reasoning、Planning、Skills、MCP、Memory、Subagent、Multi-Agent 等相关概念"],
+  },
+  {
+    id:"Kimi-campus-product-manager", company:"Kimi（月之暗面）", title:"产品经理", family:"AI产品/运营", track:"校园招聘 / 实习", location:"以官方投递页为准", date:"2026-08-21",
+    sourceTier:"S｜Kimi 官方校园招聘", sourceUrl:"https://careers.kimi.com/campus", status:"在招",
+    summary:"月之暗面官方校园招聘公开的产品经理方向；完整职责未公开时不扩写技术栈。", skills:["产品规划"], ai:["AGI"],
+    evidence:["月之暗面 Moonshot AI 校园招聘页，汇总 Kimi 实习与校招岗位，欢迎有志于 AGI 的人才加入。","查看产品经理详情"],
+  },
+  {
+    id:"智谱AI-campus-operations", company:"智谱AI", title:"运营（校招）", family:"AI产品/运营", track:"校园招聘", location:"深圳 / 上海 / 杭州 / 成都 / 北京 / 吉隆坡", date:"2026-08-21",
+    sourceTier:"S｜智谱AI 官方招聘", sourceUrl:"https://www.zhipuai.cn/zh/joinus", status:"在招",
+    summary:"结合大模型技术优势，参与设计创新的 AI 解决方案。", skills:["业务抽象","解决方案设计"], ai:["大模型","AI解决方案"],
+    evidence:["运营（校招）","结合大模型技术优势，参与设计创新的AI解决方案"],
   },
 ];
 
