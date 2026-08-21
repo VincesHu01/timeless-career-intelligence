@@ -5,18 +5,16 @@ function normalizeSecret(value: string | null | undefined) {
   return value?.trim().replace(/^(["'])(.*)\1$/, "$2").replace(/^Bearer\s+/i, "").trim();
 }
 
-async function handleRequest(request: Request, payload: { company?: string; action?: string }) {
+export async function POST(request: Request) {
   const expected = [process.env.CORTEX_CRON_SECRET, process.env.CORTEX_BACKFILL_SECRET]
     .map(normalizeSecret)
     .filter(Boolean);
-  const requestUrl = new URL(request.url);
-  const received = normalizeSecret(
-    request.headers.get("authorization") ?? requestUrl.searchParams.get("token"),
-  );
+  const received = normalizeSecret(request.headers.get("authorization"));
   if (!received || !expected.includes(received)) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const payload = await request.json().catch(() => ({})) as { company?: string; action?: string };
   if (payload.action === "weekly-report") {
     return Response.json({ report: await generateWeeklyReport() });
   }
@@ -24,17 +22,4 @@ async function handleRequest(request: Request, payload: { company?: string; acti
     return Response.json({ error: "invalid company" }, { status: 400 });
   }
   return Response.json({ result: await runCompanyCollection(payload.company as CompanyName) });
-}
-
-export async function POST(request: Request) {
-  const payload = await request.json().catch(() => ({})) as { company?: string; action?: string };
-  return handleRequest(request, payload);
-}
-
-// Temporary operator-only backfill entrypoint. The isolated token is rotated after the backfill.
-export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  return handleRequest(request, {
-    company: requestUrl.searchParams.get("company") ?? undefined,
-  });
 }
