@@ -1,21 +1,23 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { crawlRuns, jobSnapshots, jobs, refreshRequests } from "../../../db/schema";
+import { fetchStructuredCompany, type AdapterJob } from "./company-adapters";
 
 export const SOURCE_REGISTRY = {
   "字节跳动": "https://jobs.bytedance.com/campus/position",
   "阿里巴巴": "https://campus-talent.alibaba.com/campus/position-list",
   "腾讯": "https://careers.tencent.com/zh-cn/search.html",
-  "美团": "https://zhaopin.meituan.com/web/position",
-  "快手": "https://zhaopin.kuaishou.cn/recruit/e/#/official/social/",
+  "美团": "https://zhaopin.meituan.com/web/social",
+  "快手": "https://campus.kuaishou.cn/recruit/campus/e/",
   "百度": "https://talent.baidu.com/jobs/list",
-  "携程": "https://job.ctrip.com/",
-  "京东": "https://zhaopin.jd.com/web/job/job-list",
-  "拼多多": "https://careers.pddglobalhr.com/jobs",
-  "得物": "https://poizon.jobs.feishu.cn/index",
-  "网易": "https://campus.game.163.com/position",
+  "携程": "https://careers.ctrip.com/campus",
+  "京东": "https://campus.jd.com/",
+  "拼多多": "https://careers.pinduoduo.com/campus",
+  "得物": "https://campus.dewu.com/578078/position/list",
+  "网易": "https://hr.163.com/job-list",
   "Bilibili": "https://jobs.bilibili.com/campus/positions",
-  "米哈游": "https://join.mihoyo.com/#/campus/position-list",
+  "米哈游": "https://jobs.mihoyo.com/",
+  "小红书": "https://job.xiaohongshu.com/campus/position",
   "DeepSeek": "https://talent.deepseek.com/",
   "Kimi（月之暗面）": "https://careers.kimi.com/campus",
   "智谱AI": "https://www.zhipuai.cn/zh/joinus",
@@ -53,8 +55,8 @@ type ByteDanceJob = {
   job_category?:{name?:string};
 };
 
-const includedTitle = /(产品经理|产品策划|产品运营|AI产品运营|策略运营|电商运营|品类运营|商家运营|行业运营|商业化运营|用户运营|增长运营|平台运营|生态运营|运营策略|运营（|运营\(|运营岗|管培生)/i;
-const excludedTitle = /(新媒体|内容运营|内容编辑|短视频运营|直播运营|社交媒体|小红书运营|公众号运营|文案运营|社区内容)/i;
+const includedTitle = /(产品经理|产品策划|运营|管培生)/i;
+const excludedTitle = /(新媒体|内容运营|内容营销|内容编辑|短视频运营|直播运营|社交媒体|小红书运营|公众号运营|文案运营|社区内容)/i;
 
 function normalizeSecret(value: string | undefined) {
   return value?.trim().replace(/^(["'])(.*)\1$/, "$2").replace(/^Bearer\s+/i, "").trim();
@@ -329,7 +331,34 @@ async function fetchOfficialJobs(company: CompanyName) {
   if (company === "DeepSeek") return fetchDeepSeekJobs();
   if (company === "Kimi（月之暗面）") return fetchKimiJobs();
   if (company === "智谱AI") return fetchZhipuJobs();
+  const structured = await fetchStructuredCompany(company);
+  if (structured) return structuredJobsToEvidence(structured, SOURCE_REGISTRY[company]);
   return null;
+}
+
+function structuredJobsToEvidence(rows: AdapterJob[], sourceUrl: string) {
+  const candidates: ExtractedJob[] = rows.map((job) => {
+    const fullText = `${job.description}\n${job.requirements}`.trim();
+    const evidence = [job.title, ...evidenceSentences(fullText, 4)];
+    return {
+      sourceJobId: job.id,
+      title: job.title,
+      location: job.location,
+      recruitmentTrack: job.track,
+      experienceLevel: requirementSection(job.requirements, /届|学历|本科|硕士|博士|年经验|工作经验|实习/i, 2) || "未明示",
+      summary: evidenceSentences(job.description || job.requirements, 1)[0] || job.title,
+      skills: matchingTerms(fullText, skillDictionary),
+      aiSkills: matchingTerms(fullText, aiDictionary, 16),
+      bonusSignals: requirementSection(job.requirements, /优先|加分|有.+经验|熟悉.+者/i, 5).split("\n").filter(Boolean),
+      evidence,
+      technicalRequirements: requirementSection(job.requirements, /Transformer|Attention|KV Cache|Tokenizer|AI|NLP|机器学习|LLM|大模型|Agent|模型|算法|数据|Python|SQL|技术|工具|评测|训练/i),
+      experienceRequirements: requirementSection(job.requirements, /经验|经历|项目|实习|届|学历|本科|硕士|博士/i),
+      softRequirements: requirementSection(job.requirements, /沟通|协作|自驱|责任|主人翁|学习|逻辑|洞察|表达|好奇|推动|创新|抗压/i),
+      sourceUrl: job.sourceUrl,
+    };
+  });
+  const sourceText = rows.map((job) => `${job.title}\n${job.description}\n${job.requirements}`).join("\n");
+  return { sourceText, candidates, sourceUrl };
 }
 
 function extractRecruitingWindows(text: string) {
@@ -428,7 +457,7 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
     const resolvedSourceUrl = official?.sourceUrl || generic?.sourceUrl || sourceUrl;
     const candidates = official?.candidates || await extractJobs(company, resolvedSourceUrl, sourceText);
     let accepted = 0;
-    for (const candidate of candidates.slice(0, 40)) {
+    for (const candidate of candidates.slice(0, 120)) {
       const title = normalizeText(candidate.title || "");
       const evidence = uniqueStrings(candidate.evidence, 5);
       if (!title || !includedTitle.test(title) || excludedTitle.test(title)) continue;
