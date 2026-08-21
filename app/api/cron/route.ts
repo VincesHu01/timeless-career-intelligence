@@ -6,9 +6,11 @@ function normalizeSecret(value: string | null | undefined) {
 }
 
 export async function POST(request: Request) {
-  const expected = normalizeSecret(process.env.CORTEX_CRON_SECRET);
+  const expected = [process.env.CORTEX_CRON_SECRET, process.env.CORTEX_BACKFILL_SECRET]
+    .map(normalizeSecret)
+    .filter(Boolean);
   const received = normalizeSecret(request.headers.get("authorization"));
-  if (!expected || !received || expected !== received) {
+  if (!received || !expected.includes(received)) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
