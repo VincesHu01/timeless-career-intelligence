@@ -246,6 +246,48 @@ async function fetchOfficialJobs(company: CompanyName) {
   return null;
 }
 
+function extractRecruitingWindows(text: string) {
+  const needles = ["产品经理","产品策划","产品运营","策略运营","电商运营","品类运营","商家运营","行业运营","用户运营","增长运营","管培生"];
+  const windows:string[] = [];
+  for (const needle of needles) {
+    let from = 0;
+    while (windows.length < 24) {
+      const index = text.indexOf(needle,from);
+      if (index < 0) break;
+      windows.push(text.slice(Math.max(0,index-700),Math.min(text.length,index+2600)));
+      from = index+needle.length;
+    }
+  }
+  return normalizeText(windows.join(" "));
+}
+
+async function fetchGenericOfficialPage(sourceUrl: string) {
+  const response = await fetch(sourceUrl, {
+    headers: { Accept:"text/html,application/xhtml+xml,application/json", "Accept-Language":"zh-CN,zh;q=0.9", "User-Agent":"TimelessCareerResearch/1.1 (+public evidence monitor)" },
+    redirect:"follow",
+    signal:AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw classifySourceError(response.status);
+  const raw = await response.text();
+  let sourceText = htmlToEvidenceText(raw);
+  if (!includedTitle.test(sourceText)) {
+    const scriptUrls = [...raw.matchAll(/<script[^>]+src=["']([^"']+\.js(?:\?[^"']*)?)["']/gi)]
+      .map((match) => new URL(match[1],response.url).toString())
+      .filter((url,index,list) => new URL(url).origin === new URL(response.url).origin && list.indexOf(url) === index)
+      .slice(0,8);
+    const bundles = await Promise.all(scriptUrls.map(async (url) => {
+      try {
+        const asset = await fetch(url,{ headers:{ Accept:"application/javascript", Referer:response.url, "User-Agent":"TimelessCareerResearch/1.1 (+public evidence monitor)" }, signal:AbortSignal.timeout(12_000) });
+        if (!asset.ok) return "";
+        const text = await asset.text();
+        return text.length <= 1_500_000 ? extractRecruitingWindows(text) : "";
+      } catch { return ""; }
+    }));
+    sourceText = normalizeText(`${sourceText} ${bundles.join(" ")}`);
+  }
+  return { sourceText, sourceUrl:response.url };
+}
+
 function parseModelJson(content: string) {
   const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const parsed = JSON.parse(cleaned) as { jobs?: ExtractedJob[] } | ExtractedJob[];
@@ -293,20 +335,11 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
 
   try {
     const official = await fetchOfficialJobs(company);
-    const response = official ? null : await fetch(sourceUrl, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/json",
-        "User-Agent": "TimelessCareerResearch/1.0 (+public evidence monitor)",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (response && !response.ok) throw classifySourceError(response.status);
-    const raw = response ? await response.text() : "";
-    const sourceText = official?.sourceText || htmlToEvidenceText(raw);
+    const generic = official ? null : await fetchGenericOfficialPage(sourceUrl);
+    const sourceText = official?.sourceText || generic?.sourceText || "";
     if (sourceText.length < 200) throw new Error("官方页面是 JavaScript 空壳，尚未定位到其公开职位数据接口；这不代表没有岗位");
 
-    const resolvedSourceUrl = official?.sourceUrl || response?.url || sourceUrl;
+    const resolvedSourceUrl = official?.sourceUrl || generic?.sourceUrl || sourceUrl;
     const candidates = official?.candidates || await extractJobs(company, resolvedSourceUrl, sourceText);
     let accepted = 0;
     for (const candidate of candidates.slice(0, 40)) {
@@ -359,11 +392,11 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
 
     const offlineMarked = await auditKnownJobLinks(company);
 
-    const completedStatus = accepted ? "success" : candidates.length ? "needs_review" : "no_matching_jobs";
+    const completedStatus = accepted ? "success" : candidates.length ? "needs_review" : includedTitle.test(sourceText) ? "no_matching_jobs" : "needs_adapter";
     await db.update(crawlRuns).set({
       status: completedStatus,
       discovered: accepted,
-      errorMessage: accepted ? null : candidates.length ? "发现候选岗位，但公开证据未全部通过逐字校验" : "官方公开数据中本轮未发现目标产品/运营岗位",
+      errorMessage: accepted ? null : candidates.length ? "发现候选岗位，但公开证据未全部通过逐字校验" : completedStatus === "no_matching_jobs" ? "官方公开数据中本轮未发现目标产品/运营岗位" : "页面可访问，但尚未从 HTML、内嵌 JSON 或公开脚本中定位目标岗位数据",
       finishedAt: sql`CURRENT_TIMESTAMP`,
     }).where(eq(crawlRuns.id, run.id));
     if (requestId) {
