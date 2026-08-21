@@ -357,7 +357,7 @@ function structuredJobsToEvidence(rows: AdapterJob[], sourceUrl: string) {
       sourceUrl: job.sourceUrl,
     };
   });
-  const sourceText = rows.map((job) => `${job.title}\n${job.description}\n${job.requirements}`).join("\n");
+  const sourceText = normalizeText(rows.map((job) => `${job.title} ${job.description} ${job.requirements}`).join(" "));
   return { sourceText, candidates, sourceUrl };
 }
 
