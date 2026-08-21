@@ -3,7 +3,7 @@ import { getDb } from "../../../db";
 import { crawlRuns, jobSnapshots, jobs, refreshRequests } from "../../../db/schema";
 
 export const SOURCE_REGISTRY = {
-  "字节跳动": "https://jobs.bytedance.com/zh/position",
+  "字节跳动": "https://jobs.bytedance.com/campus/position",
   "阿里巴巴": "https://campus-talent.alibaba.com/campus/position-list",
   "腾讯": "https://careers.tencent.com/zh-cn/search.html",
   "美团": "https://zhaopin.meituan.com/web/position",
@@ -34,6 +34,9 @@ type ExtractedJob = {
   aiSkills?: string[];
   bonusSignals?: string[];
   evidence?: string[];
+  technicalRequirements?: string;
+  experienceRequirements?: string;
+  softRequirements?: string;
   sourceUrl?: string;
 };
 
@@ -123,6 +126,17 @@ function evidenceSentences(text: string, max = 5) {
   return text.split(/[。\n]/).map(normalizeText).filter((item) => item.length >= 12).slice(0, max);
 }
 
+function requirementSection(text: string, pattern: RegExp, max = 8) {
+  return text
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .split(/\n+|(?<=[。；])/)
+    .map(normalizeText)
+    .filter((item) => item.length >= 8 && pattern.test(item))
+    .slice(0, max)
+    .join("\n");
+}
+
 async function fetchTencentJobs() {
   const searchResponse = await fetch("https://join.qq.com/api/v1/position/searchPosition", {
     method:"POST",
@@ -161,6 +175,9 @@ async function fetchTencentJobs() {
       aiSkills:matchingTerms(fullText,aiDictionary),
       bonusSignals:evidenceSentences(item.request || "",2),
       evidence:evidenceSentences(fullText,5),
+      technicalRequirements:requirementSection(item.request || "", /Transformer|Attention|位置编码|KV Cache|Tokenizer|采样|上下文|记忆|Agent|Skill|Subagent|MCP|RAG|SFT|LoRA|DPO|GRPO|预训练|Python|SQL|模型|算法|数据|评测/i),
+      experienceRequirements:requirementSection(item.request || "", /经验|经历|项目|实习|训练|数据构造|评测集|基座模型|规模|效果/i),
+      softRequirements:requirementSection(item.request || "", /沟通|协作|自驱|责任|学习|逻辑|洞察|表达|好奇|推动|抗压/i),
       sourceUrl:item.sourceUrl,
     };
   });
@@ -202,6 +219,9 @@ async function fetchDeepSeekJobs() {
       aiSkills:matchingTerms(text,aiDictionary,16),
       bonusSignals:evidenceSentences(text.split(/加分项|优先/).slice(1).join(" "),2),
       evidence:evidenceSentences(text,5),
+      technicalRequirements:requirementSection(text, /LLM|KV Cache|Agent|Tool Use|Reasoning|Planning|Skill|MCP|Memory|Subagent|Multi-Agent|模型|评测|训练|Prompt|Vibe Coding|代码|数据/i),
+      experienceRequirements:requirementSection(text, /经验|经历|项目|深度使用|构建|生产|实习|全职/i),
+      softRequirements:requirementSection(text, /沟通|协作|自驱|责任|学习|逻辑|洞察|表达|好奇|推动|审美/i),
       sourceUrl:`https://talent.deepseek.com/job/${job.id}`,
     };
   });
@@ -304,7 +324,7 @@ async function extractJobs(company: CompanyName, sourceUrl: string, sourceText: 
 目标公司：${company}\n
 只保留产品经理/产品策划，以及产品运营、AI产品运营、策略运营、电商运营、品类运营、商家运营、行业运营、商业化运营、增长运营、平台/生态运营、管培生。\n
 严格排除新媒体运营、内容运营、编辑、短视频/直播/社交媒体运营。\n
-返回纯JSON：{"jobs":[{"sourceJobId":"原文ID或空串","title":"原文职位名","location":"原文地点或以官方详情为准","recruitmentTrack":"日常实习/暑期实习/校招/人才计划/管培生/社会招聘/未明示","experienceLevel":"原文经验要求或未明示","summary":"最多80字，仅概括原文","skills":["原文明示能力"],"aiSkills":["原文明示AI知识或技术"],"bonusSignals":["原文明示优先项"],"evidence":["2-5段SOURCE中逐字存在的短句"]}]}。没有合格岗位则返回{"jobs":[]}。\n
+返回纯JSON：{"jobs":[{"sourceJobId":"原文ID或空串","title":"原文职位名","location":"原文地点或以官方详情为准","recruitmentTrack":"日常实习/暑期实习/校招/人才计划/管培生/社会招聘/未明示","experienceLevel":"原文经验要求或未明示","summary":"最多80字，仅概括原文","skills":["原文明示能力"],"aiSkills":["原文明示AI知识或技术"],"bonusSignals":["完整的原文明示优先项"],"technicalRequirements":"技术、AI知识和工具要求的完整原文段落；没有则空串","experienceRequirements":"项目、实习和工作经验要求的完整原文段落；没有则空串","softRequirements":"沟通、协作、自驱等软素质要求的完整原文段落；没有则空串","evidence":["2-5段SOURCE中逐字存在的完整短句"]}]}。三个 requirements 字段必须逐字复制 SOURCE，不得拼接不相邻片段；没有合格岗位则返回{"jobs":[]}。\n
 SOURCE_URL: ${sourceUrl}\nSOURCE:\n${sourceText.slice(0, 60_000)}`;
 
   const response = await fetch(`${base.replace(/\/$/, "")}/chat/completions`, {
@@ -355,6 +375,10 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
       const skills = uniqueStrings(candidate.skills, 10);
       const aiSkills = uniqueStrings(candidate.aiSkills, 10);
       const bonusSignals = uniqueStrings(candidate.bonusSignals, 8);
+      const verifiedLongText = (value: string | undefined) => {
+        const normalized = normalizeText(value || "").slice(0, 6000);
+        return normalized && sourceText.includes(normalized) ? normalized : "";
+      };
       const contentHash = stableHash(JSON.stringify({ title, location, recruitmentTrack, evidence }));
       const values = {
         id,
@@ -370,6 +394,9 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
         aiSkillsJson: JSON.stringify(aiSkills),
         bonusSignalsJson: JSON.stringify(bonusSignals),
         evidenceJson: JSON.stringify(evidence),
+        technicalRequirements: verifiedLongText(candidate.technicalRequirements),
+        experienceRequirements: verifiedLongText(candidate.experienceRequirements),
+        softRequirements: verifiedLongText(candidate.softRequirements),
         sourceTier: "S｜官方招聘",
         sourceUrl: candidate.sourceUrl || resolvedSourceUrl,
         sourceJobId: sourceJobId || null,

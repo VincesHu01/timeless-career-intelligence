@@ -13,6 +13,7 @@ export type JobRecord = {
   company: string;
   title: string;
   family: string;
+  roleType?: "产品岗" | "运营岗";
   track: string;
   location: string;
   date: string;
@@ -22,6 +23,9 @@ export type JobRecord = {
   skills: string[];
   ai: string[];
   bonusSignals?: string[];
+  technicalRequirements?: string;
+  experienceRequirements?: string;
+  softRequirements?: string;
   experienceLevel?: string;
   firstSeenAt?: string;
   lastSeenAt?: string;
@@ -30,7 +34,7 @@ export type JobRecord = {
 };
 
 export const companySources: CompanySource[] = [
-  { name:"字节跳动", short:"字节", logo:"https://jobs.bytedance.com/favicon.ico", level:"A", status:"官方职位页 + 动态接口", url:"https://jobs.bytedance.com/zh/position", note:"按当前官方入口采集；旧 /campus/position 地址返回 404 时不再误判岗位下线。" },
+  { name:"字节跳动", short:"字节", logo:"https://jobs.bytedance.com/favicon.ico", level:"A", status:"官方校园招聘", url:"https://jobs.bytedance.com/campus/position", note:"以官方校园招聘入口和可核验的单岗位详情链接为准；不再使用旧入口。" },
   { name:"阿里巴巴", short:"阿里", logo:"https://campus-talent.alibaba.com/favicon.ico", level:"A", status:"集团校招公开", url:"https://campus-talent.alibaba.com/", note:"需保留淘天、阿里云、钉钉等招聘业务归属。" },
   { name:"腾讯", short:"腾讯", logo:"https://join.qq.com/favicon.ico", level:"A", status:"官方公开搜索与详情接口", url:"https://join.qq.com/", note:"已使用公开搜索与详情接口读取岗位，不再依赖空壳 HTML。" },
   { name:"美团", short:"美团", logo:"https://zhaopin.meituan.com/favicon.ico", level:"B", status:"项目分类公开", url:"https://zhaopin.meituan.com/", note:"区分日常实习、转正实习、校招、北斗计划与社招。" },
