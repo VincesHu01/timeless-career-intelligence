@@ -42,6 +42,16 @@ type ExtractedJob = {
 
 type TencentSearchItem = { postId?:string; positionTitle?:string; projectName?:string };
 type TencentDetail = { postId?:string; title?:string; desc?:string; request?:string; workCityList?:string[]; projectName?:string; recruitLabelName?:string };
+type ByteDanceJob = {
+  id?:string;
+  title?:string;
+  description?:string;
+  requirement?:string;
+  city_info?:{name?:string};
+  city_list?:Array<{name?:string}>;
+  recruit_type?:{name?:string;parent?:{name?:string}};
+  job_category?:{name?:string};
+};
 
 const includedTitle = /(产品经理|产品策划|产品运营|AI产品运营|策略运营|电商运营|品类运营|商家运营|行业运营|商业化运营|用户运营|增长运营|平台运营|生态运营|运营策略|运营（|运营\(|运营岗|管培生)/i;
 const excludedTitle = /(新媒体|内容运营|内容编辑|短视频运营|直播运营|社交媒体|小红书运营|公众号运营|文案运营|社区内容)/i;
@@ -135,6 +145,61 @@ function requirementSection(text: string, pattern: RegExp, max = 8) {
     .filter((item) => item.length >= 8 && pattern.test(item))
     .slice(0, max)
     .join("\n");
+}
+
+async function fetchByteDanceJobs() {
+  const endpoint = "https://jobs.bytedance.com/api/v1/search/job/posts";
+  const scopes = [
+    { channel:"campus", recruitmentIds:["201","202"], detailPath:"campus", track:"校园招聘 / 实习" },
+    { channel:"society", recruitmentIds:["101"], detailPath:"experienced", track:"社会招聘" },
+  ];
+  const requests = scopes.flatMap((scope) => ["产品","运营"].map(async (keyword) => {
+    const pageUrl = scope.channel === "campus" ? SOURCE_REGISTRY["字节跳动"] : "https://jobs.bytedance.com/experienced/position";
+    const response = await fetch(endpoint, {
+      method:"POST",
+      headers:{
+        "User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept:"application/json, text/plain, */*",
+        "Content-Type":"application/json",
+        "portal-channel":scope.channel,
+        "portal-platform":"pc",
+        "website-path":scope.channel,
+        Origin:"https://jobs.bytedance.com",
+        Referer:pageUrl,
+      },
+      body:JSON.stringify({ keyword, limit:100, offset:0, portal_type:3, portal_entrance:1, language:"zh", recruitment_id_list:scope.recruitmentIds }),
+      signal:AbortSignal.timeout(25_000),
+    });
+    if (!response.ok) throw new Error(`字节跳动官方职位接口返回 HTTP ${response.status}`);
+    const payload = await response.json() as {code?:number;message?:string;data?:{job_post_list?:ByteDanceJob[]}};
+    if (payload.code !== 0) throw new Error(payload.message || "字节跳动官方职位接口返回异常");
+    return (payload.data?.job_post_list || []).map((job) => ({ job, scope }));
+  }));
+  const rows = (await Promise.all(requests)).flat();
+  const unique = [...new Map(rows.filter(({job}) => job.id && includedTitle.test(job.title || "") && !excludedTitle.test(job.title || "")).map((row) => [row.job.id,row])).values()].slice(0,80);
+  const sourceText = normalizeText(unique.map(({job}) => `${job.title || ""} ${job.description || ""} ${job.requirement || ""}`).join(" "));
+  const candidates:ExtractedJob[] = unique.map(({job,scope}) => {
+    const fullText = `${job.description || ""}\n${job.requirement || ""}`;
+    const cities = (job.city_list || []).map((city) => city.name).filter(Boolean).join(" / ") || job.city_info?.name || "以官方详情为准";
+    const track = job.recruit_type?.name ? `${scope.track} · ${job.recruit_type.name}` : scope.track;
+    return {
+      sourceJobId:job.id,
+      title:job.title,
+      location:cities,
+      recruitmentTrack:track,
+      experienceLevel:requirementSection(job.requirement || "", /届|学历|本科|硕士|博士|年经验|工作经验|实习/i,2) || "未明示",
+      summary:evidenceSentences(job.description || "",1)[0] || job.title,
+      skills:matchingTerms(fullText,skillDictionary),
+      aiSkills:matchingTerms(fullText,aiDictionary,16),
+      bonusSignals:requirementSection(job.requirement || "", /优先|加分|有.+经验|熟悉.+者/i,5).split("\n").filter(Boolean),
+      evidence:evidenceSentences(fullText,5),
+      technicalRequirements:requirementSection(job.requirement || "", /AI|NLP|机器学习|LLM|大模型|Agent|算法|模型|数据|Python|SQL|技术|工具/i),
+      experienceRequirements:requirementSection(job.requirement || "", /经验|经历|项目|实习|届|学历|本科|硕士|博士/i),
+      softRequirements:requirementSection(job.requirement || "", /沟通|协作|自驱|责任|主人翁|学习|逻辑|洞察|表达|好奇|推动|创新/i),
+      sourceUrl:`https://jobs.bytedance.com/${scope.detailPath}/position/${encodeURIComponent(job.id || "")}/detail`,
+    };
+  });
+  return { sourceText, candidates, sourceUrl:SOURCE_REGISTRY["字节跳动"] };
 }
 
 async function fetchTencentJobs() {
@@ -259,6 +324,7 @@ async function fetchZhipuJobs() {
 }
 
 async function fetchOfficialJobs(company: CompanyName) {
+  if (company === "字节跳动") return fetchByteDanceJobs();
   if (company === "腾讯") return fetchTencentJobs();
   if (company === "DeepSeek") return fetchDeepSeekJobs();
   if (company === "Kimi（月之暗面）") return fetchKimiJobs();
