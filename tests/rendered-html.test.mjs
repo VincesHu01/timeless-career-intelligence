@@ -12,12 +12,12 @@ async function render() {
   );
 }
 
-test("server-renders the Cortex product shell", async () => {
+test("server-renders the Timeless product shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
-  assert.match(html, /<title>Cortex｜大厂产品与运营岗位能力雷达<\/title>/i);
+  assert.match(html, /<title>Timeless｜大厂产品与运营岗位能力雷达<\/title>/i);
   assert.match(html, /招聘市场不会给你答案/);
   assert.match(html, /趋势周报/);
   assert.match(html, /浏览真实样本/);

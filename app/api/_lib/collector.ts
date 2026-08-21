@@ -31,7 +31,11 @@ type ExtractedJob = {
   aiSkills?: string[];
   bonusSignals?: string[];
   evidence?: string[];
+  sourceUrl?: string;
 };
+
+type TencentSearchItem = { postId?:string; positionTitle?:string; projectName?:string };
+type TencentDetail = { postId?:string; title?:string; desc?:string; request?:string; workCityList?:string[]; projectName?:string; recruitLabelName?:string };
 
 const includedTitle = /(产品经理|产品策划|产品运营|AI产品运营|策略运营|电商运营|品类运营|商家运营|行业运营|商业化运营|用户运营|增长运营|平台运营|生态运营|运营策略|管培生)/i;
 const excludedTitle = /(新媒体|内容运营|内容编辑|短视频运营|直播运营|社交媒体|小红书运营|公众号运营|文案运营|社区内容)/i;
@@ -95,6 +99,61 @@ function roleType(title: string) {
   return /运营/.test(title) ? "运营岗" : "产品岗";
 }
 
+const skillDictionary = ["用户研究","需求分析","产品规划","数据分析","指标体系","跨团队协作","业务抽象","项目管理","商业化","增长","行业研究","竞品分析"];
+const aiDictionary = ["Transformer","自回归生成","Attention","位置编码","KV Cache","Tokenizer","采样策略","上下文","记忆","ReAct","Plan-and-Execute","Function Calling","Skill","Subagent","Multi-Agent","MCP","RAG","SFT","LoRA","DPO","GRPO","持续预训练","合成数据","评测集","Python","SQL","Agent","大模型"];
+
+function matchingTerms(text: string, dictionary: string[], max = 10) {
+  return dictionary.filter((term) => text.toLowerCase().includes(term.toLowerCase())).slice(0, max);
+}
+
+function evidenceSentences(text: string, max = 5) {
+  return text.split(/[。\n]/).map(normalizeText).filter((item) => item.length >= 12).slice(0, max);
+}
+
+async function fetchTencentJobs() {
+  const searchResponse = await fetch("https://join.qq.com/api/v1/position/searchPosition", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json", Accept:"application/json", "User-Agent":"TimelessCareerResearch/1.0 (+public evidence monitor)" },
+    body:JSON.stringify({ keyword:"产品", pageIndex:1, pageSize:1000, workCityList:[], recruitCityList:[], bgList:[], positionFidList:[] }),
+    signal:AbortSignal.timeout(20_000),
+  });
+  if (!searchResponse.ok) throw new Error(`腾讯官方搜索接口返回 HTTP ${searchResponse.status}`);
+  const search = await searchResponse.json() as { data?:{ positionList?:TencentSearchItem[] } };
+  const positions = (search.data?.positionList || [])
+    .filter((item) => item.postId && includedTitle.test(item.positionTitle || "") && !excludedTitle.test(item.positionTitle || ""))
+    .sort((a,b) => Number(b.postId === "1285066789650506781") - Number(a.postId === "1285066789650506781"))
+    .slice(0, 36);
+  const details = await Promise.all(positions.map(async (position) => {
+    const url = `https://join.qq.com/api/v1/jobDetails/getJobDetailsByPostId?postId=${position.postId}`;
+    try {
+      const response = await fetch(url, { headers:{ Accept:"application/json", "User-Agent":"TimelessCareerResearch/1.0 (+public evidence monitor)" }, signal:AbortSignal.timeout(15_000) });
+      if (!response.ok) return null;
+      const payload = await response.json() as { data?:TencentDetail };
+      return payload.data ? { ...payload.data, sourceUrl:`https://join.qq.com/post_detail.html?postid=${position.postId}` } : null;
+    } catch { return null; }
+  }));
+  const valid = details.filter((item): item is TencentDetail & {sourceUrl:string} => Boolean(item?.title && item?.desc));
+  const sourceText = valid.map((item) => `${item.title}\n${item.desc}\n${item.request || ""}`).join("\n");
+  const candidates:ExtractedJob[] = valid.map((item) => {
+    const fullText = `${item.desc || ""}\n${item.request || ""}`;
+    const track = item.projectName || item.recruitLabelName || "未明示";
+    return {
+      sourceJobId:item.postId,
+      title:item.title,
+      location:item.workCityList?.join(" / ") || "以官方详情为准",
+      recruitmentTrack:track,
+      experienceLevel:/实习/.test(track) ? "在校生" : /应届|培训生|管培/.test(track) ? "应届生" : "未明示",
+      summary:evidenceSentences(item.desc || "",1)[0] || item.title,
+      skills:matchingTerms(fullText,skillDictionary),
+      aiSkills:matchingTerms(fullText,aiDictionary),
+      bonusSignals:evidenceSentences(item.request || "",2),
+      evidence:evidenceSentences(fullText,5),
+      sourceUrl:item.sourceUrl,
+    };
+  });
+  return { sourceText, candidates, sourceUrl:"https://join.qq.com/" };
+}
+
 function parseModelJson(content: string) {
   const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const parsed = JSON.parse(cleaned) as { jobs?: ExtractedJob[] } | ExtractedJob[];
@@ -141,20 +200,22 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
   const [run] = await db.insert(crawlRuns).values({ company, status: "running" }).returning();
 
   try {
-    const response = await fetch(sourceUrl, {
+    const official = company === "腾讯" ? await fetchTencentJobs() : null;
+    const response = official ? null : await fetch(sourceUrl, {
       headers: {
         Accept: "text/html,application/xhtml+xml,application/json",
-        "User-Agent": "CortexCareerResearch/1.0 (+public evidence monitor)",
+        "User-Agent": "TimelessCareerResearch/1.0 (+public evidence monitor)",
       },
       redirect: "follow",
       signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok) throw new Error(`官方源站返回 HTTP ${response.status}`);
-    const raw = await response.text();
-    const sourceText = htmlToEvidenceText(raw);
+    if (response && !response.ok) throw new Error(`官方源站返回 HTTP ${response.status}`);
+    const raw = response ? await response.text() : "";
+    const sourceText = official?.sourceText || htmlToEvidenceText(raw);
     if (sourceText.length < 200) throw new Error("官方页面未返回足够的公开文本，转为人工复核");
 
-    const candidates = await extractJobs(company, response.url || sourceUrl, sourceText);
+    const resolvedSourceUrl = official?.sourceUrl || response?.url || sourceUrl;
+    const candidates = official?.candidates || await extractJobs(company, resolvedSourceUrl, sourceText);
     let accepted = 0;
     for (const candidate of candidates.slice(0, 40)) {
       const title = normalizeText(candidate.title || "");
@@ -185,7 +246,7 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
         bonusSignalsJson: JSON.stringify(bonusSignals),
         evidenceJson: JSON.stringify(evidence),
         sourceTier: "S｜官方招聘",
-        sourceUrl: response.url || sourceUrl,
+        sourceUrl: candidate.sourceUrl || resolvedSourceUrl,
         sourceJobId: sourceJobId || null,
         sourcePublishedAt: null,
         contentHash,
@@ -215,7 +276,7 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
     if (requestId) {
       await db.update(refreshRequests).set({ status: accepted ? "completed" : "needs_review" }).where(eq(refreshRequests.id, requestId));
     }
-    return { runId: run.id, accepted, offlineMarked, status: accepted ? "success" : "needs_review", sourceUrl };
+    return { runId: run.id, accepted, offlineMarked, status: accepted ? "success" : "needs_review", sourceUrl:resolvedSourceUrl };
   } catch (error) {
     const message = error instanceof Error ? error.message : "采集失败";
     await db.update(crawlRuns).set({ status: "failed", errorMessage: message, finishedAt: sql`CURRENT_TIMESTAMP` }).where(eq(crawlRuns.id, run.id));

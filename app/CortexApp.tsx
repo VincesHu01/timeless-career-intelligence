@@ -2,11 +2,13 @@
 
 import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { companySources, knowledgeCards, reviewIntervals, verifiedJobs, type JobRecord } from "./cortex-data";
+import ParticleField from "./ParticleField";
 
 type View = "overview" | "matrix" | "jobs" | "weekly" | "learn" | "sources";
 type AuthMode = "login" | "signup";
 type AuthConfig = { url: string; key: string; configured: boolean };
 type Session = { access_token: string; user: { email?: string; user_metadata?: Record<string, string> } };
+type SourceRun = { company:string; status:string; discovered:number; message?:string|null; checkedAt:string };
 type WeeklyReport = {
   title: string;
   weekStart: string;
@@ -49,7 +51,7 @@ const matrixRows = [
 ];
 
 function Logo() {
-  return <div className="cx-logo"><span>C</span><div><b>CORTEX</b><small>CAREER INTELLIGENCE</small></div></div>;
+  return <div className="cx-logo"><span>T</span><div><b>TIMELESS</b><small>CAREER INTELLIGENCE</small></div></div>;
 }
 
 export default function CortexApp() {
@@ -66,10 +68,11 @@ export default function CortexApp() {
   const [toast, setToast] = useState("");
   const [jobs, setJobs] = useState<JobRecord[]>(verifiedJobs);
   const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
+  const [sourceRuns, setSourceRuns] = useState<Record<string,SourceRun>>({});
 
   const loadMarketData = async () => {
     try {
-      const [jobsResponse, reportResponse] = await Promise.all([fetch("/api/jobs"), fetch("/api/weekly-report")]);
+      const [jobsResponse, reportResponse, sourceResponse] = await Promise.all([fetch("/api/jobs"), fetch("/api/weekly-report"), fetch("/api/source-status")]);
       if (jobsResponse.ok) {
         const data = await jobsResponse.json() as { jobs?: JobRecord[] };
         if (data.jobs?.length) setJobs(data.jobs);
@@ -77,6 +80,10 @@ export default function CortexApp() {
       if (reportResponse.ok) {
         const data = await reportResponse.json() as { report?: WeeklyReport | null };
         if (data.report) setWeeklyReport(data.report);
+      }
+      if (sourceResponse.ok) {
+        const data = await sourceResponse.json() as { sources?:SourceRun[] };
+        setSourceRuns(Object.fromEntries((data.sources || []).map((item) => [item.company,item])));
       }
     } catch {
       setToast("动态数据暂不可用，正在展示已核验的基础样本");
@@ -108,7 +115,7 @@ export default function CortexApp() {
         const due = Object.entries(schedule).filter(([,item]) => Date.parse(item.dueAt) <= Date.now() && item.notifiedAt !== item.dueAt);
         if (!due.length) return;
         const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification("Cortex · AI 知识复习", { body:`有 ${due.length} 个知识点到期，用 5 分钟把它们讲清楚。`, icon:"/favicon.svg", tag:"cortex-review-due" });
+        await registration.showNotification("Timeless · AI 知识复习", { body:`有 ${due.length} 个知识点到期，用 5 分钟把它们讲清楚。`, icon:"/favicon.svg", tag:"cortex-review-due" });
         due.forEach(([id,item]) => { schedule[id] = { ...item, notifiedAt:item.dueAt }; });
         localStorage.setItem(REVIEW_DUE_KEY,JSON.stringify(schedule));
       } catch { localStorage.removeItem(REVIEW_DUE_KEY); }
@@ -150,10 +157,10 @@ export default function CortexApp() {
     }
     try {
       const response = await fetch("/api/refresh", { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${session.access_token}` }, body:JSON.stringify({ company:name }) });
-      const data = await response.json() as { error?:string };
-      if (!response.ok) throw new Error(data.error === "cooldown" ? `${name} 的更新请求仍在 30 分钟冷却期` : data.error || "提交失败");
+      const data = await response.json() as { error?:string; message?:string; retryAfterSeconds?:number };
+      if (!response.ok) throw new Error(data.message || (data.error === "cooldown" ? `${name} 刚完成采集，请稍后重试` : data.error || "提交失败"));
       const result = data as { result?:{ accepted?:number; status?:string }; error?:string };
-      setToast(result.result?.status === "success" ? `${name} 已更新，新增/更新 ${result.result.accepted || 0} 条证据记录` : `${name} 已完成检查，当前需要人工复核`);
+      setToast(result.result?.status === "success" ? `${name} 已更新，新增/更新 ${result.result.accepted || 0} 条证据记录` : `${name} 自动检查未取得足够的逐字证据，未写入推断内容，已转人工复核`);
       await loadMarketData();
     } catch (reason) {
       setToast(reason instanceof Error ? reason.message : "更新请求暂时无法提交");
@@ -220,6 +227,7 @@ export default function CortexApp() {
 
   return (
     <div className="cx-app">
+      <ParticleField view={view} />
       <aside className="cx-sidebar">
         <Logo />
         <nav aria-label="产品导航">
@@ -249,7 +257,7 @@ export default function CortexApp() {
           <div className="cx-header-actions">
             <button className="cx-notify" onClick={enableNotifications} aria-label="开启浏览器提醒">♢</button>
             {session ? (
-              <button className="cx-user" onClick={() => setAuthOpen(true)}><span>{(session.user.user_metadata?.username || session.user.email || "C").slice(0,1).toUpperCase()}</span><b>{session.user.user_metadata?.username || "我的 Cortex"}</b></button>
+              <button className="cx-user" onClick={() => setAuthOpen(true)}><span>{(session.user.user_metadata?.username || session.user.email || "T").slice(0,1).toUpperCase()}</span><b>{session.user.user_metadata?.username || "我的 Timeless"}</b></button>
             ) : (
               <button className="cx-login" onClick={() => setAuthOpen(true)}>登录 / 注册 <b>↗</b></button>
             )}
@@ -262,7 +270,7 @@ export default function CortexApp() {
           {view === "jobs" && <JobsView jobs={filteredJobs} query={query} company={company} track={track} onCompany={setCompany} onTrack={setTrack} onJob={setSelectedJob} />}
           {view === "weekly" && <WeeklyView report={weeklyReport} session={session} onReport={setWeeklyReport} onToast={setToast} />}
           {view === "learn" && <LearnView reviews={reviews} onReview={completeReview} onNotify={enableNotifications} />}
-          {view === "sources" && <SourcesView onRefresh={requestRefresh} onTestModel={testModel} modelStatus={modelStatus} />}
+          {view === "sources" && <SourcesView sourceRuns={sourceRuns} onRefresh={requestRefresh} onTestModel={testModel} modelStatus={modelStatus} />}
         </main>
 
         <nav className="cx-mobile-nav" aria-label="移动端导航">
@@ -289,7 +297,7 @@ function Overview({ jobs, onNavigate, onJob, onRefresh }: { jobs:JobRecord[]; on
     <section className="cx-hero-grid">
       <div className="cx-hero-copy">
         <div className="cx-kicker"><i /> MARKET SIGNAL / 2026.08.21</div>
-        <h1>招聘市场不会给你答案，<br /><em>Cortex</em> 给你证据。</h1>
+        <h1>招聘市场不会给你答案，<br /><em>Timeless</em> 给你证据。</h1>
         <p>追踪 13 家互联网公司，只分析产品与目标运营岗位。每一个结论都可以回到官方职位、原文证据与核验时间。</p>
         <div className="cx-hero-buttons"><button onClick={() => onNavigate("matrix")}>查看能力透视 <b>↗</b></button><button onClick={() => onNavigate("jobs")}>浏览真实样本</button></div>
         <div className="cx-trust-row"><span><b>13</b> 家目标公司</span><span><b>{jobs.length}</b> 条证据记录</span><span><b>0</b> 条无来源结论</span></div>
@@ -421,14 +429,19 @@ function JobsView({ jobs, query, company, track, onCompany, onTrack, onJob }: { 
       <div className="cx-job-meta"><span>⌖ {job.location}</span><span>◷ {job.date}</span></div>
       <button onClick={() => onJob(job)}>查看原文证据 <b>↗</b></button>
     </article>)}</section>
-    {jobs.length === 0 && <div className="cx-panel cx-empty"><strong>没有匹配的已核验记录</strong><p>试试减少筛选条件。Cortex 不会为了填满列表生成不存在的岗位。</p></div>}
+    {jobs.length === 0 && <div className="cx-panel cx-empty"><strong>没有匹配的已核验记录</strong><p>试试减少筛选条件。Timeless 不会为了填满列表生成不存在的岗位。</p></div>}
   </>;
 }
 
 function LearnView({ reviews, onReview, onNotify }: { reviews:Record<string,number>; onReview:(id:string,q:number)=>void; onNotify:()=>void }) {
   const [selected, setSelected] = useState(knowledgeCards[0]);
   return <>
-    <PageTitle eyebrow="04 / AI LEARNING" title="从招聘要求到可讲述能力" desc="每个知识点都关联岗位证据、非技术解释、动手练习与艾宾浩斯复习计划。" actions={<button className="cx-primary" onClick={onNotify}>开启浏览器提醒 ♢</button>} />
+    <PageTitle eyebrow="04 / AI STACK LAB" title="从岗位原文到可验证的 AI 硬能力" desc="不是术语清单：讲清原理、产品决策、动手实验与简历证据，再用间隔复习把它变成能在面试中讲透的能力。" actions={<button className="cx-primary" onClick={onNotify}>开启浏览器提醒 ♢</button>} />
+    <section className="cx-case-study">
+      <div><span>OFFICIAL JD DECONSTRUCTION</span><h2>腾讯 WorkBuddy Agent 策略产品经理</h2><p>业务正从单轮 AI 助手过渡到长程自主 Agent。岗位判断主要约束已转向上下文组织、记忆管理、任务规划和工具调用，因此产培生不是只写需求，而要从线上 badcase 出发做归因、实验、评测与数据闭环。</p></div>
+      <div className="cx-case-flow"><span>业务阶段<b>长程 Agent</b></span><i>→</i><span>核心约束<b>运行策略</b></span><i>→</i><span>工作方法<b>Badcase 实验</b></span><i>→</i><span>结果证据<b>线上指标</b></span></div>
+      <a href="https://join.qq.com/post_detail.html?postid=1285066789650506781" target="_blank" rel="noreferrer">查看腾讯官方岗位 ↗</a>
+    </section>
     <section className="cx-learn-summary">
       <div><span>今日待复习</span><strong>{knowledgeCards.length - Object.keys(reviews).length}</strong><small>按照 1 / 2 / 4 / 7 / 15 / 30 天安排</small></div>
       <div className="cx-review-curve"><span>记忆巩固节奏</span><div>{reviewIntervals.map((day,index) => <i key={day} style={{ height:`${28 + index * 10}px` }}><b>{day}</b></i>)}</div><small>DAY</small></div>
@@ -436,31 +449,39 @@ function LearnView({ reviews, onReview, onNotify }: { reviews:Record<string,numb
     </section>
     <div className="cx-learn-layout">
       <section className="cx-course-list">
-        <div className="cx-panel-head"><div><span>KNOWLEDGE MAP</span><h2>优先学习路径</h2></div><small>来自当前岗位证据</small></div>
+        <div className="cx-panel-head"><div><span>KNOWLEDGE MAP</span><h2>九层技术栈</h2></div><small>腾讯官方 JD 驱动</small></div>
         {knowledgeCards.map((card,index) => <button key={card.id} className={selected.id === card.id ? "active" : ""} onClick={() => setSelected(card)}>
           <i>{String(index+1).padStart(2,"0")}</i><div><span>{card.level} · {card.minutes} MIN</span><b>{card.title}</b><p>{card.desc}</p></div><strong>{card.relevance}<small>% 相关</small></strong>
         </button>)}
       </section>
       <aside className="cx-panel cx-lesson">
         <div className="cx-lesson-label"><span>{selected.level}</span><b>{selected.minutes} MIN</b></div><h2>{selected.title}</h2><p className="cx-lesson-desc">{selected.desc}</p>
-        <h3>为什么与你有关</h3><p>{selected.why}</p>
+        <div className="cx-lesson-section"><h3>01 · 这个概念是什么</h3><p>{selected.concept}</p></div>
+        <div className="cx-lesson-section"><h3>02 · 它怎样工作</h3><p>{selected.mechanism}</p></div>
+        <div className="cx-lesson-section"><h3>03 · 非技术岗具体怎么用</h3><p>{selected.productUse}</p></div>
+        <div className="cx-mental-model"><span>5 MIN MENTAL MODEL</span><p>{selected.mentalModel}</p></div>
+        <div className="cx-jd-signal"><span>岗位为什么要求它</span><p>{selected.jdSignal}</p></div>
         <div className="cx-lesson-tags">{selected.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
-        <div className="cx-mini-task"><span>MINI PROJECT</span><b>用一个真实 JD 设计 3 个测试问题，并定义“回答合格”的判断标准。</b></div>
-        <a href={selected.source} target="_blank" rel="noreferrer">查看岗位/官方学习证据 ↗</a>
+        <div className="cx-mini-task"><span>HANDS-ON PROJECT</span><b>{selected.project}</b></div>
+        <div className="cx-resume-proof"><span>简历证据应该怎样写</span><p>{selected.resumeProof}</p></div>
+        <a href={selected.source} target="_blank" rel="noreferrer">回到腾讯官方岗位证据 ↗</a>
         <div className="cx-review-actions"><span>这次掌握得怎样？</span><button onClick={() => onReview(selected.id,1)}>需要重学</button><button onClick={() => onReview(selected.id,3)}>基本掌握</button><button className="good" onClick={() => onReview(selected.id,5)}>可以讲清楚</button></div>
       </aside>
     </div>
   </>;
 }
 
-function SourcesView({ onRefresh, onTestModel, modelStatus }: { onRefresh:(name:string)=>void; onTestModel:()=>void; modelStatus:string }) {
+function SourcesView({ sourceRuns, onRefresh, onTestModel, modelStatus }: { sourceRuns:Record<string,SourceRun>; onRefresh:(name:string)=>void; onTestModel:()=>void; modelStatus:string }) {
   return <>
-    <PageTitle eyebrow="05 / SOURCE AUDIT" title="数据来源与可信状态" desc="A/B/C 是自动化可行性分级，不是公司招聘质量评分；任何源站限制都不会被绕过。" actions={<button className="cx-primary" onClick={onTestModel}>测试 AI 连接 · {modelStatus}</button>} />
-    <div className="cx-source-legend"><span><b className="cx-level lA">A</b> 公开结构清晰</span><span><b className="cx-level lB">B</b> 条件自动接入</span><span><b className="cx-level lC">C</b> 人工/半自动校验</span></div>
-    <section className="cx-source-grid">{companySources.map((source) => <article key={source.name}>
-      <div className="cx-source-top"><span className={`cx-level l${source.level}`}>{source.level}</span><div><h2>{source.name}</h2><small>{source.status}</small></div><span className="cx-source-dot" /></div>
-      <p>{source.note}</p><div className="cx-source-actions"><a href={source.url} target="_blank" rel="noreferrer">官方入口 ↗</a><button onClick={() => onRefresh(source.name)}>请求更新</button></div>
-    </article>)}</section>
+    <PageTitle eyebrow="05 / SOURCE AUDIT" title="每条数据经历了什么" desc="这里展示采集能否自动完成、上次检查结果和没有写入的原因；等级只代表自动化条件，不评价公司。" actions={<button className="cx-primary" onClick={onTestModel}>测试 AI 连接 · {modelStatus}</button>} />
+    <section className="cx-pipeline"><div><i>01</i><b>读取官方公开页</b><span>不绕过登录、验证码与访问限制</span></div><em>→</em><div><i>02</i><b>筛选目标岗位</b><span>排除内容、新媒体与直播运营</span></div><em>→</em><div><i>03</i><b>逐字证据校验</b><span>标题与片段必须在原文存在</span></div><em>→</em><div><i>04</i><b>写入或转复核</b><span>证据不足就不生成结论</span></div></section>
+    <div className="cx-status-guide"><span><b>已更新</b> 已有证据写入岗位库</span><span><b>人工复核</b> 自动页没有足够文本，未写入推断</span><span><b>失败</b> 源站或连接异常，可在 3 分钟后重试</span><span><b>已下线</b> 仅在官方链接明确返回 404 / 410 时标记</span></div>
+    <section className="cx-source-grid">{companySources.map((source) => { const run=sourceRuns[source.name]; const status=run?.status === "success" ? "已更新" : run?.status === "needs_review" ? "人工复核" : run?.status === "failed" ? "连接失败" : "等待首次检查"; return <article key={source.name}>
+      <div className="cx-source-top"><span className={`cx-level l${source.level}`}>{source.level}</span><div><h2>{source.name}</h2><small>{source.status}</small></div><span className={`cx-run-state s-${run?.status || "idle"}`}>{status}</span></div>
+      <p>{source.note}</p>
+      <div className="cx-run-detail"><b>{run ? `最近检查 · ${run.checkedAt.slice(0,16).replace("T"," ")}` : "尚无自动采集记录"}</b><span>{run?.status === "success" ? `本次写入/更新 ${run.discovered} 条通过证据校验的岗位` : run?.message || "点击请求更新后，状态会显示在这里"}</span></div>
+      <div className="cx-source-actions"><a href={source.url} target="_blank" rel="noreferrer">核对官方页 ↗</a><button onClick={() => onRefresh(source.name)}>立即检查</button></div>
+    </article>; })}</section>
     <section className="cx-compliance"><div><span>BLOCKED BY POLICY</span><h2>BOSS 直聘与实习僧</h2></div><p>两家平台协议均限制未经授权的爬虫或批量抓取。连接器保留为“待授权”，取得覆盖聚合用途的书面许可或官方 API 前不会启用。</p><div><a href="https://www.zhipin.com/web/common/protocol/protocol-2019-09-30.html" target="_blank" rel="noreferrer">BOSS 协议 ↗</a><a href="https://www.shixiseng.com/rule" target="_blank" rel="noreferrer">实习僧协议 ↗</a></div></section>
   </>;
 }
@@ -505,7 +526,7 @@ function AuthModal({ session, mode, onMode, onClose, onSession, onToast }: { ses
     {session ? <div className="cx-account-panel"><span>ACCOUNT CONNECTED</span><h2>{session.user.user_metadata?.username || session.user.email}</h2><p>复习进度已接入账号同步；岗位浏览无需登录。</p><button onClick={logout}>退出登录</button></div> : <>
       <div className="cx-auth-tabs"><button className={mode === "login" ? "active" : ""} onClick={() => onMode("login")}>登录</button><button className={mode === "signup" ? "active" : ""} onClick={() => onMode("signup")}>创建账号</button></div>
       <h2>{mode === "login" ? "继续你的能力进化" : "建立你的求职画像"}</h2><p>{mode === "login" ? "查看收藏、复习计划与岗位变化。" : "邮箱只用于验证和找回密码，不发送营销邮件。"}</p>
-      <form onSubmit={submit}>{mode === "signup" && <><label>角色名称<input name="username" required minLength={2} placeholder="例如：AI 产品探索者" /></label><div className="cx-form-row"><label>身份阶段<select name="stage"><option>本科在校生</option><option>硕士在校生</option><option>博士在校生</option><option>应届生</option></select></label><label>目标方向<select name="target"><option>产品</option><option>运营</option><option>尚未确定</option></select></label></div></>}<label>邮箱<input name="email" type="email" required placeholder="name@example.com" /></label><label>密码<input name="password" type="password" required minLength={8} placeholder="至少 8 位" /></label>{error && <div className="cx-form-error">{error}</div>}<button className="cx-auth-submit" disabled={loading}>{loading ? "处理中…" : mode === "login" ? "登录 Cortex" : "创建 Cortex 账号"}</button></form>
+      <form onSubmit={submit}>{mode === "signup" && <><label>角色名称<input name="username" required minLength={2} placeholder="例如：AI 产品探索者" /></label><div className="cx-form-row"><label>身份阶段<select name="stage"><option>本科在校生</option><option>硕士在校生</option><option>博士在校生</option><option>应届生</option></select></label><label>目标方向<select name="target"><option>产品</option><option>运营</option><option>尚未确定</option></select></label></div></>}<label>邮箱<input name="email" type="email" required placeholder="name@example.com" /></label><label>密码<input name="password" type="password" required minLength={8} placeholder="至少 8 位" /></label>{error && <div className="cx-form-error">{error}</div>}<button className="cx-auth-submit" disabled={loading}>{loading ? "处理中…" : mode === "login" ? "登录 Timeless" : "创建 Timeless 账号"}</button></form>
       {!config.configured && <div className="cx-auth-status"><i /> Supabase 账号服务等待项目授权</div>}
     </>}
   </div></div>;

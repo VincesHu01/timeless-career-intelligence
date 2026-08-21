@@ -1,7 +1,7 @@
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 self.addEventListener("push", (event) => {
-  let payload = { title: "Cortex 复习提醒", body: "今天有知识卡等待复习。", url: "/" };
+  let payload = { title: "Timeless 复习提醒", body: "今天有知识卡等待复习。", url: "/" };
   try { payload = { ...payload, ...event.data.json() }; } catch (error) { void error; }
   event.waitUntil(self.registration.showNotification(payload.title, {
     body: payload.body,
