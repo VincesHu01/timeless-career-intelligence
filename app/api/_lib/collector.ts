@@ -440,7 +440,11 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
       const id = `${company}-${sourceJobId || stableHash(`${title}|${location}|${recruitmentTrack}`)}`;
       const skills = uniqueStrings(candidate.skills, 10);
       const aiSkills = uniqueStrings(candidate.aiSkills, 10);
-      const bonusSignals = uniqueStrings(candidate.bonusSignals, 8);
+      const bonusSignals = [...new Set((candidate.bonusSignals || [])
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => normalizeText(item).slice(0,2000))
+        .filter((item) => item && sourceText.includes(item)))]
+        .slice(0,8);
       const verifiedLongText = (value: string | undefined) => {
         const normalized = normalizeText(value || "").slice(0, 6000);
         return normalized && sourceText.includes(normalized) ? normalized : "";
