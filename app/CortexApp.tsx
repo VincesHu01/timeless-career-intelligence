@@ -523,9 +523,25 @@ function LearnView({ jobs, reviews, onReview, onNotify }: { jobs:JobRecord[]; re
   </>;
 }
 
-function SourcesView({ jobs, sourceRuns, onRefresh, onTestModel, modelStatus }: { jobs:JobRecord[]; sourceRuns:Record<string,SourceRun>; onRefresh:(name:string)=>void; onTestModel:()=>void; modelStatus:string }) {
+function SourcesView({ jobs, sourceRuns, onRefresh, onTestModel, modelStatus }: { jobs:JobRecord[]; sourceRuns:Record<string,SourceRun>; onRefresh:(name:string)=>Promise<void>; onTestModel:()=>void; modelStatus:string }) {
+  const [syncingAll,setSyncingAll] = useState(false);
+  const [syncProgress,setSyncProgress] = useState(0);
+  const syncAll = async () => {
+    if (syncingAll) return;
+    setSyncingAll(true);
+    setSyncProgress(0);
+    try {
+      for (let index=0; index<companySources.length; index+=3) {
+        const batch=companySources.slice(index,index+3);
+        await Promise.all(batch.map((source) => onRefresh(source.name)));
+        setSyncProgress(Math.min(index+batch.length,companySources.length));
+      }
+    } finally {
+      setSyncingAll(false);
+    }
+  };
   return <>
-    <PageTitle eyebrow="05 / SOURCE COVERAGE" title="官方岗位覆盖" desc="这里只展示你真正关心的结果：每家公司已收录多少个可核验岗位、最近何时同步，以及官方入口。技术诊断不会干扰浏览。" actions={<button className="cx-primary" onClick={onTestModel}>测试 AI 连接 · {modelStatus}</button>} />
+    <PageTitle eyebrow="05 / SOURCE COVERAGE" title="官方岗位覆盖" desc="这里只展示你真正关心的结果：每家公司已收录多少个可核验岗位、最近何时同步，以及官方入口。技术诊断不会干扰浏览。" actions={<><button className="cx-primary" onClick={syncAll} disabled={syncingAll}>{syncingAll ? `同步中 ${syncProgress}/${companySources.length}` : "一键全量同步"}</button><button className="cx-primary" onClick={onTestModel}>测试 AI 连接 · {modelStatus}</button></>} />
     <section className="cx-pipeline"><div><i>01</i><b>读取官方公开页</b><span>不绕过登录、验证码与访问限制</span></div><em>→</em><div><i>02</i><b>筛选目标岗位</b><span>排除内容、新媒体与直播运营</span></div><em>→</em><div><i>03</i><b>逐字证据校验</b><span>标题与要求必须在原文存在</span></div><em>→</em><div><i>04</i><b>更新岗位库</b><span>新岗位写入，失效岗位保留并标记</span></div></section>
     <div className="cx-status-guide"><span><b>已收录</b> 岗位标题与来源可核验</span><span><b>持续同步</b> 没有新增时保留最近成功数据</span><span><b>已下线</b> 历史岗位保留，不从数据库删除</span><span><b>官方直达</b> 每个岗位优先链接具体详情页</span></div>
     <section className="cx-source-grid">{companySources.map((source) => { const run=sourceRuns[source.name]; const companyJobs=jobs.filter((job) => job.company === source.name); const active=companyJobs.filter((job) => job.status === "在招").length; const status=companyJobs.length ? `已收录 ${companyJobs.length} 条` : "持续同步中"; return <article key={source.name}>
