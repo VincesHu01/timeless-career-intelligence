@@ -130,7 +130,7 @@ export const verifiedJobs: JobRecord[] = [
 export type KnowledgeCard = {
   id:string; title:string; level:string; minutes:number; relevance:number; desc:string;
   concept:string; mechanism:string; productUse:string; mentalModel:string;
-  jdSignal:string; project:string; resumeProof:string; source:string; tags:string[];
+  jdSignal:string; project:string; resumeProof:string; source:string; tags:string[]; learnUrl?:string;
 };
 
 const tencentWorkBuddy = "https://join.qq.com/post_detail.html?postid=1285066789650506781";

@@ -80,11 +80,21 @@ export function dynamicKnowledgeCards(jobs:JobRecord[], baseCards:KnowledgeCard[
       project:detail?.project || `围绕 ${term} 选择一个公开可复现的业务场景，制作至少 100 条分层测试样本；设置基线与一个改进版本，逐条保存输入、输出和判定依据，报告分场景指标、P95 时延、单次成本、Badcase 分类和下一轮取舍。`,
       resumeProof:`用“业务问题—你的决策—数据规模—${term} 所在链路—评测集与指标—基线—效果变化—失败与复盘”写清项目，并附 PRD、流程图、评测表或演示链接；不要只写“熟悉 ${term}”。`,
       source:matches[0].sourceUrl,
+      learnUrl:externalLearningUrl(term),
       tags:[term],
       matches,
       historical:matches.filter((job) => job.status === "已下线").length,
     };
   });
+}
+
+export function externalLearningUrl(term:string) {
+  if (/MCP/i.test(term)) return "https://modelcontextprotocol.io/docs/getting-started/intro";
+  if (/SFT|LoRA|QLoRA|DPO|GRPO|RLHF|RLAIF|PPO|微调|预训练|奖励模型|偏好对齐/i.test(term)) return "https://huggingface.co/docs/trl/quickstart";
+  if (/Agent|ReAct|Planning|Subagent|Multi-Agent|Tool|Skill|Function Calling/i.test(term)) return "https://www.anthropic.com/engineering/building-effective-agents";
+  if (/上下文|Token 预算|记忆|Memory/i.test(term)) return "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents";
+  if (/评测|Badcase|指标/i.test(term)) return "https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents";
+  return "https://huggingface.co/learn/llm-course/en/chapter1/1?fw=pt";
 }
 
 function escapeRegExp(value:string) { return value.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }

@@ -1,6 +1,7 @@
 import { desc } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { jobs } from "../../../db/schema";
+import { extractAiTechnicalTerms } from "../../ai-taxonomy";
 
 function list(value: string) {
   try {
@@ -32,7 +33,7 @@ export async function GET(request:Request) {
       sourceUrl: job.sourceUrl,
       summary: job.summary,
       skills: list(job.skillsJson),
-      ai: list(job.aiSkillsJson),
+      ai: extractAiTechnicalTerms(list(job.aiSkillsJson)),
       bonusSignals: list(job.bonusSignalsJson),
       evidence: list(job.evidenceJson),
       technicalRequirements: job.technicalRequirements,

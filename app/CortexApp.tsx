@@ -3,7 +3,8 @@
 import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { companySources, knowledgeCards, reviewIntervals, verifiedJobs, type JobRecord } from "./cortex-data";
 import ParticleField from "./ParticleField";
-import { abilityGroups, abilityNameFor, dynamicKnowledgeCards, evidenceForAbility, exactTrackMatch, exportPdfReport } from "./insight-utils";
+import { abilityGroups, abilityNameFor, dynamicKnowledgeCards, evidenceForAbility, exactTrackMatch, exportPdfReport, externalLearningUrl } from "./insight-utils";
+import { isConciseAbilityTerm } from "./ai-taxonomy";
 
 type View = "overview" | "matrix" | "jobs" | "weekly" | "learn" | "sources";
 type AuthMode = "login" | "signup";
@@ -43,6 +44,28 @@ const navItems: { id: View; label: string; en: string; icon: string }[] = [
 const REVIEW_DUE_KEY = "cortex_review_due";
 const HIDDEN_JOBS_KEY = "timeless_hidden_jobs_v1";
 const AI_COMPANIES = new Set(["DeepSeek","Kimi（月之暗面）","智谱AI"]);
+const STATIC_LEARNING_LINKS:Record<string,string> = {
+  transformer:"https://huggingface.co/learn/llm-course/en/chapter1/1?fw=pt",
+  context:"https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents",
+  memory:"https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents",
+  planning:"https://www.anthropic.com/engineering/building-effective-agents",
+  tools:"https://modelcontextprotocol.io/docs/getting-started/intro",
+  evaluation:"https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents",
+  posttraining:"https://huggingface.co/docs/trl/quickstart",
+  rag:"https://huggingface.co/learn/llm-course/en/chapter1/1?fw=pt",
+  python_sql:"https://docs.python.org/zh-cn/3/tutorial/",
+};
+const LEARNING_DEEP_DIVE:Record<string,string> = {
+  transformer:"关键指标：上下文长度、首字延迟 TTFT、逐 Token 延迟 TPOT、吞吐、每任务 Token 成本与任务正确率。常见误区：把参数量当作实际效果；把 KV Cache 当作长期记忆；只调 temperature 却不固定测试集。",
+  context:"关键指标：有效上下文占比、关键约束保留率、截断率、检索命中率与长任务成功率。常见误区：窗口越大越好；把全部历史原样塞入；压缩后不做事实与约束回归。",
+  memory:"关键指标：正确写入率、有效召回率、误召回率、过期信息命中率和冲突处理成功率。常见误区：保存全部对话；把模型推断写成用户事实；没有来源、版本、删除和权限机制。",
+  planning:"关键指标：任务完成率、平均步骤数、无效调用率、循环率、人工接管率与单位任务成本。常见误区：步骤越多越智能；没有停止条件；多个 Subagent 共享模糊责任。",
+  tools:"关键指标：工具选择准确率、参数正确率、调用成功率、幂等失败率、P95 时延和高风险操作确认率。常见误区：把 Schema 写成自然语言；工具权限过大；失败后无限重试。",
+  evaluation:"关键指标必须分层报告任务成功、事实性、安全、时延、成本和用户价值，并记录标注一致性。常见误区：只看总分；用待评模型生成并裁判同一批数据；让评测集混入训练集。",
+  posttraining:"关键指标：目标任务增益、通用能力退化、偏好胜率、幻觉率、训练稳定性和推理成本。常见误区：实时知识也用微调解决；没有基座对照；只报告训练 loss，不做独立盲测。",
+  rag:"关键指标：Recall@K、重排命中率、答案支持率、引用正确率、拒答率和知识时效。常见误区：只测最终答案；切片越小越好；检索无结果仍强制生成。",
+  python_sql:"关键指标：样本覆盖、脚本可复现率、指标口径一致性、失败重跑率和数据泄漏检查。常见误区：手工改表不留版本；SQL 分母漂移；实验没有固定随机种子与模型版本。",
+};
 type ReviewDue = Record<string, { dueAt:string; notifiedAt?:string }>;
 
 function Logo() {
@@ -416,20 +439,24 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
   const [companyFilter, setCompanyFilter] = useState("全部公司");
   const [selectedAbility,setSelectedAbility] = useState(abilityGroups[0].name as string);
   const [selectedCompany,setSelectedCompany] = useState("全部公司");
-  const scopedJobs = useMemo(() => jobs.filter((job) => {
+  const [abilityCategory,setAbilityCategory] = useState("全部能力");
+  const baseScopeJobs = useMemo(() => jobs.filter((job) => {
     const inferredRole = job.roleType || (/运营/.test(job.title) ? "运营岗" : "产品岗");
     const roleMatch = roleFilter === "全部岗位" || inferredRole === roleFilter;
     const companyMatch = companyFilter === "全部公司" || (companyFilter === "AI 公司" ? AI_COMPANIES.has(job.company) : !AI_COMPANIES.has(job.company));
-    return roleMatch && companyMatch && job.status !== "已下线" && (job.skills.length > 0 || job.ai.length > 0);
+    return roleMatch && companyMatch && job.status !== "已下线";
   }),[jobs,roleFilter,companyFilter]);
+  const scopedJobs = useMemo(() => baseScopeJobs.filter((job) => job.skills.length > 0 || job.ai.length > 0),[baseScopeJobs]);
   const companies = useMemo(() => [...new Set(scopedJobs.map((job) => job.company))]
     .sort((a,b) => scopedJobs.filter((job) => job.company === b).length-scopedJobs.filter((job) => job.company === a).length),[scopedJobs]);
   const matrixRows = useMemo(() => {
     const terms=new Map<string,JobRecord[]>();
-    scopedJobs.forEach((job) => [...new Set([...job.ai,...job.skills])].forEach((term) => terms.set(term,[...(terms.get(term) || []),job])));
+    scopedJobs.forEach((job) => [...new Set([...job.ai,...job.skills].filter(isConciseAbilityTerm))].forEach((term) => terms.set(term,[...(terms.get(term) || []),job])));
     return [...terms.entries()].map(([name,matchingJobs]) => ({ name,count:matchingJobs.length,subrequirements:[{name,count:matchingJobs.length}],jobs:matchingJobs })).sort((a,b) => b.count-a.count || a.name.localeCompare(b.name,"zh-CN"));
   },[scopedJobs]);
-  const selectedRow=matrixRows.find((row) => row.name === selectedAbility) || matrixRows[0];
+  const categories=useMemo(() => abilityGroups.map((group) => ({ name:group.name,count:matrixRows.filter((row) => abilityNameFor(row.name) === group.name).length })).filter((item) => item.count > 0),[matrixRows]);
+  const displayRows=abilityCategory === "全部能力" ? matrixRows : matrixRows.filter((row) => abilityNameFor(row.name) === abilityCategory);
+  const selectedRow=displayRows.find((row) => row.name === selectedAbility) || displayRows[0];
   const selectedEvidenceJobs=(selectedRow?.jobs || []).filter((job) => selectedCompany === "全部公司" || job.company === selectedCompany);
   const selectedEvidence=selectedEvidenceJobs.slice(0,20).flatMap((job) => evidenceForAbility(job,[selectedRow?.name || ""]).map((excerpt,index) => ({ job,excerpt,key:`${job.id}-${index}` })));
   const groupedJobs=useMemo(() => {
@@ -437,7 +464,7 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
     scopedJobs.forEach((job) => groups.set(job.family,[...(groups.get(job.family) || []),job]));
     return [...groups.entries()].sort((a,b) => b[1].length-a[1].length);
   },[scopedJobs]);
-  const matrixStyle = { gridTemplateColumns:`minmax(190px,1.5fr) repeat(${Math.max(companies.length,1)},minmax(96px,1fr)) minmax(88px,.8fr)` };
+  const matrixStyle = { gridTemplateColumns:`210px repeat(${Math.max(companies.length,1)},104px) 92px` };
   const exportMatrix = () => exportPdfReport(
     "Timeless 能力透视",
     `${roleFilter} · ${companyFilter} · ${scopedJobs.length} 个岗位`,
@@ -457,16 +484,17 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
       <span>实时口径 · {scopedJobs.length} 个岗位 / {companies.length} 家公司</span>
     </div>
     <div className="cx-sample-warning"><span>LIVE EVIDENCE</span><p>当前只统计岗位原文明示且已结构化的能力。<b>“未明示”不代表不需要</b>，样本少于 3 条时不输出行业结论。</p></div>
+    <nav className="cx-ability-categories" aria-label="能力标签分类"><button className={abilityCategory === "全部能力" ? "active" : ""} onClick={() => setAbilityCategory("全部能力")}>全部能力 <b>{matrixRows.length}</b></button>{categories.map((item) => <button key={item.name} className={abilityCategory === item.name ? "active" : ""} onClick={() => {setAbilityCategory(item.name);setSelectedCompany("全部公司");}}>{item.name} <b>{item.count}</b></button>)}</nav>
     {matrixRows.length ? <div className="cx-matrix-layout">
       <section className="cx-panel cx-big-matrix">
         <div className="cx-panel-head"><div><span>COMPANY COVERAGE</span><h2>能力 × 公司</h2></div><small>职责/要求明示口径</small></div>
         <div className="cx-matrix-grid cx-matrix-head" style={matrixStyle}><span>动态能力标签</span>{companies.map((name) => <span key={name}>{name}</span>)}<span>岗位覆盖</span></div>
-        {matrixRows.map((row) => <div className={`cx-matrix-grid cx-matrix-row ${selectedRow?.name === row.name ? "active" : ""}`} style={matrixStyle} key={row.name}><button onClick={() => {setSelectedAbility(row.name);setSelectedCompany("全部公司");}}>{row.name}<small>{abilityNameFor(row.name)}</small></button>{companies.map((name) => { const companyJobs=row.jobs.filter((job) => job.company === name); return <button key={name} className={companyJobs.length ? "yes" : "no"} onClick={() => {setSelectedAbility(row.name);setSelectedCompany(name);}}>{companyJobs.length ? `${companyJobs.length} 条` : "未明示"}</button>; })}<strong>{row.count}/{scopedJobs.length}</strong></div>)}
+        {displayRows.map((row) => <div className={`cx-matrix-grid cx-matrix-row ${selectedRow?.name === row.name ? "active" : ""}`} style={matrixStyle} key={row.name}><button onClick={() => {setSelectedAbility(row.name);setSelectedCompany("全部公司");}}>{row.name}<small>{abilityNameFor(row.name)}</small></button>{companies.map((name) => { const companyJobs=row.jobs.filter((job) => job.company === name); return <button key={name} className={companyJobs.length ? "yes" : "no"} onClick={() => {setSelectedAbility(row.name);setSelectedCompany(name);}}>{companyJobs.length ? `${companyJobs.length} 条` : "未明示"}</button>; })}<strong>{row.count}/{scopedJobs.length}</strong></div>)}
         <div className="cx-matrix-legend"><span><i className="yes" /> JD 明确</span><span><i className="no" /> 未明示，不等于不需要</span></div>
       </section>
       <aside className="cx-panel cx-stage-ladder">
         <div className="cx-panel-head"><div><span>FILTER SNAPSHOT</span><h2>当前切片</h2></div></div>
-        {["实习","校招","社会招聘"].map((stage,index) => { const stageJobs=scopedJobs.filter((job) => job.track.includes(stage)); const top=[...new Set(stageJobs.flatMap((job) => [...job.ai,...job.skills]))].slice(0,4); return <div className="cx-stage" key={stage}><i>0{index+1}</i><div><b>{stage} · {stageJobs.length} 条</b><p>{top.length ? top.join("、") : "当前没有足够的明示能力样本"}</p></div></div>; })}
+        {["实习","校招","社会招聘"].map((stage,index) => { const stageJobs=baseScopeJobs.filter((job) => exactTrackMatch(job,stage)); const top=[...new Set(stageJobs.flatMap((job) => [...job.ai,...job.skills].filter(isConciseAbilityTerm)))].slice(0,4); return <div className="cx-stage" key={stage}><i>0{index+1}</i><div><b>{stage} · {stageJobs.length} 条</b><p>{top.length ? top.join("、") : "有岗位记录，完整能力要求仍在同步"}</p></div></div>; })}
       </aside>
     </div> : <EmptyMatrix family={`${roleFilter} / ${companyFilter}`} />}
     {selectedRow && <section className="cx-panel cx-ability-drilldown">
@@ -571,6 +599,8 @@ function LearnView({ jobs, reviews, onReview, onNotify }: { jobs:JobRecord[]; re
     return [...staticModules,...dynamicKnowledgeCards(aiJobs,knowledgeCards)].sort((a,b) => b.relevance-a.relevance || a.title.localeCompare(b.title,"zh-CN"));
   },[aiJobs]);
   const selected = modules.find((card) => card.id === selectedId) || modules[0];
+  const learningUrl=selected.learnUrl || STATIC_LEARNING_LINKS[selected.id] || externalLearningUrl(selected.title);
+  const deepDive=LEARNING_DEEP_DIVE[selected.id] || `验收 ${selected.title} 时，不只看“能否运行”：必须同时记录任务成功率、分场景质量、P95 时延、单次成本、失败类型、安全边界和人工接管率；每次改动保留固定基线与回归集，避免只挑成功案例。`;
   const companies = new Set(aiJobs.map((job) => job.company));
   const signalCounts = useMemo(() => {
     const counts = new Map<string,number>();
@@ -602,6 +632,8 @@ function LearnView({ jobs, reviews, onReview, onNotify }: { jobs:JobRecord[]; re
         <div className="cx-lesson-section"><h3>01 · 这个概念是什么</h3><p>{selected.concept}</p></div>
         <div className="cx-lesson-section"><h3>02 · 它怎样工作</h3><p>{selected.mechanism}</p></div>
         <div className="cx-lesson-section"><h3>03 · 非技术岗具体怎么用</h3><p>{selected.productUse}</p></div>
+        <div className="cx-lesson-section cx-deep-dive"><h3>04 · 关键指标与常见误区</h3><p>{deepDive}</p></div>
+        <div className="cx-learning-links"><a href={learningUrl} target="_blank" rel="noreferrer">阅读官方深度教程 <b>↗</b></a><small>站外资料用于补充原理与实践；岗位需求判断仍以本站关联的招聘原文为准。</small></div>
         <div className="cx-mental-model"><span>5 MIN MENTAL MODEL</span><p>{selected.mentalModel}</p></div>
         <div className="cx-jd-signal"><span>当前岗位为什么要求它</span><p>{selected.matches.length ? `${[...new Set(selected.matches.map((job) => job.company))].join("、")} 的 ${selected.matches.slice(0,3).map((job) => job.title).join("、")} 等岗位在职责或要求中明确出现了本模块信号。下面可逐条回到官方原文核验。` : "当前已采集岗位尚未明确出现这一技术信号。课程保留为基础知识，但不会伪装成实时招聘趋势。"}</p></div>
         <div className="cx-lesson-tags">{selected.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>

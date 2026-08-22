@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { crawlRuns, jobSnapshots, jobs, refreshRequests } from "../../../db/schema";
+import { AI_TECH_TERMS, extractAiTechnicalTerms } from "../../ai-taxonomy";
 import { fetchStructuredCompany, type AdapterJob } from "./company-adapters";
 
 export const SOURCE_REGISTRY = {
@@ -128,7 +129,7 @@ function roleType(title: string) {
 }
 
 const skillDictionary = ["用户研究","需求分析","产品规划","数据分析","指标体系","跨团队协作","业务抽象","项目管理","商业化","增长","行业研究","竞品分析"];
-const aiDictionary = ["Transformer","自回归生成","Attention","位置编码","KV Cache","Tokenizer","采样策略","上下文","上下文工程","Token 预算","记忆","ReAct","Plan-and-Execute","Function Calling","Tool Use","Skill","Subagent","Multi-Agent","MCP","RAG","Embedding","向量数据库","召回","重排","知识图谱","SFT","LoRA","DPO","GRPO","RLHF","RLAIF","PPO","持续预训练","微调","偏好对齐","奖励模型","MoE","合成数据","数据标注","评测集","模型评测","Badcase","Python","SQL","PyTorch","LangChain","LlamaIndex","OCR","ASR","TTS","VLM","多模态","Diffusion","Agent","LLM","大模型"];
+const aiDictionary = [...AI_TECH_TERMS];
 
 function matchingTerms(text: string, dictionary: string[], max = 10) {
   return dictionary.filter((term) => text.toLowerCase().includes(term.toLowerCase())).slice(0, max);
@@ -468,7 +469,7 @@ export async function runCompanyCollection(company: CompanyName, requestId?: num
       const sourceJobId = normalizeText(candidate.sourceJobId || "");
       const id = `${company}-${sourceJobId || stableHash(`${title}|${location}|${recruitmentTrack}`)}`;
       const skills = uniqueStrings(candidate.skills, 10);
-      const aiSkills = uniqueStrings(candidate.aiSkills, 24);
+      const aiSkills = extractAiTechnicalTerms(candidate.aiSkills,24);
       const bonusSignals = [...new Set((candidate.bonusSignals || [])
         .filter((item): item is string => typeof item === "string")
         .map((item) => normalizeText(item).slice(0,2000))
