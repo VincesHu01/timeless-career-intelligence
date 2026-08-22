@@ -39,5 +39,5 @@ export async function GET() {
       firstSeenAt: job.firstSeenAt,
       lastSeenAt: job.lastSeenAt,
     })),
-  }, { headers: { "Cache-Control": "public, max-age=60" } });
+  }, { headers: { "Cache-Control": "no-store" } });
 }

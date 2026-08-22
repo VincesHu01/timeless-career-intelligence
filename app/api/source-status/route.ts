@@ -14,5 +14,5 @@ export async function GET() {
       message:row.errorMessage,
       checkedAt:row.finishedAt || row.startedAt,
     })),
-  });
+  }, { headers:{ "Cache-Control":"no-store" } });
 }
