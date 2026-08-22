@@ -66,6 +66,10 @@ export default function CortexApp() {
   const [query, setQuery] = useState("");
   const [company, setCompany] = useState("全部公司");
   const [track, setTrack] = useState("全部类型");
+  const [statusFilter,setStatusFilter] = useState("全部历史");
+  const [aiOnly,setAiOnly] = useState(false);
+  const [dateScope,setDateScope] = useState("全部时间");
+  const [filterNow] = useState(() => Date.now());
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [session, setSession] = useState<Session | null>(null);
@@ -80,15 +84,23 @@ export default function CortexApp() {
   const loadMarketData = async () => {
     try {
       const stamp=Date.now();
-      const [jobsResponse, reportResponse, sourceResponse] = await Promise.all([
-        fetch(`/api/jobs?fresh=${stamp}`,{ cache:"no-store" }),
+      const fetchAllJobs=async () => {
+        const all:JobRecord[]=[];
+        for(let offset=0;;offset+=500) {
+          const response=await fetch(`/api/jobs?fresh=${stamp}&limit=500&offset=${offset}`,{ cache:"no-store" });
+          if(!response.ok) throw new Error("岗位库加载失败");
+          const data=await response.json() as { jobs?:JobRecord[]; pagination?:{hasMore?:boolean} };
+          all.push(...(data.jobs || []));
+          if(!data.pagination?.hasMore) break;
+        }
+        return all;
+      };
+      const [allJobs, reportResponse, sourceResponse] = await Promise.all([
+        fetchAllJobs(),
         fetch(`/api/weekly-report?fresh=${stamp}`,{ cache:"no-store" }),
         fetch(`/api/source-status?fresh=${stamp}`,{ cache:"no-store" }),
       ]);
-      if (jobsResponse.ok) {
-        const data = await jobsResponse.json() as { jobs?: JobRecord[] };
-        if (Array.isArray(data.jobs)) setJobs(data.jobs);
-      }
+      setJobs(allJobs);
       if (reportResponse.ok) {
         const data = await reportResponse.json() as { report?: WeeklyReport | null };
         if (data.report) setWeeklyReport(data.report);
@@ -153,8 +165,11 @@ export default function CortexApp() {
     const haystack = `${job.company}${job.title}${job.family}${job.skills.join("")}${job.ai.join("")}`.toLowerCase();
     return (!query || haystack.includes(query.toLowerCase())) &&
       (company === "全部公司" || job.company === company) &&
-      exactTrackMatch(job.track,track);
-  }), [jobs, query, company, track]);
+      exactTrackMatch(job,track) &&
+      (statusFilter === "全部历史" || job.status === statusFilter) &&
+      (!aiOnly || job.ai.length > 0) &&
+      (dateScope === "全部时间" || Date.parse(job.firstSeenAt || job.date) >= filterNow-(dateScope === "近半年" ? 183 : 365)*86400000);
+  }), [jobs, query, company, track,statusFilter,aiOnly,dateScope,filterNow]);
 
   const navigate = (next: View) => {
     setView(next);
@@ -300,7 +315,7 @@ export default function CortexApp() {
         <main className="cx-content">
           {view === "overview" && <Overview jobs={jobs} onNavigate={navigate} onJob={setSelectedJob} onRefresh={requestRefresh} />}
           {view === "matrix" && <MatrixView jobs={jobs} onJob={setSelectedJob} />}
-          {view === "jobs" && <JobsView jobs={filteredJobs} query={query} company={company} track={track} onCompany={setCompany} onTrack={setTrack} onJob={setSelectedJob} />}
+          {view === "jobs" && <JobsView jobs={filteredJobs} totalJobs={jobs.length} query={query} company={company} track={track} statusFilter={statusFilter} aiOnly={aiOnly} dateScope={dateScope} onCompany={setCompany} onTrack={setTrack} onStatus={setStatusFilter} onAiOnly={setAiOnly} onDateScope={setDateScope} onJob={setSelectedJob} />}
           {view === "weekly" && <WeeklyView report={weeklyReport} session={session} onReport={setWeeklyReport} onToast={setToast} />}
           {view === "learn" && <LearnView jobs={jobs} reviews={reviews} onReview={completeReview} onNotify={enableNotifications} />}
           {view === "sources" && <SourcesView jobs={jobs} sourceRuns={sourceRuns} onRefresh={requestRefresh} onSyncInsights={syncAllInsights} insightSyncedAt={insightSyncedAt} onTestModel={testModel} modelStatus={modelStatus} />}
@@ -391,31 +406,28 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
     return roleMatch && companyMatch && job.status !== "已下线" && (job.skills.length > 0 || job.ai.length > 0);
   }),[jobs,roleFilter,companyFilter]);
   const companies = useMemo(() => [...new Set(scopedJobs.map((job) => job.company))]
-    .sort((a,b) => scopedJobs.filter((job) => job.company === b).length-scopedJobs.filter((job) => job.company === a).length)
-    .slice(0,6),[scopedJobs]);
+    .sort((a,b) => scopedJobs.filter((job) => job.company === b).length-scopedJobs.filter((job) => job.company === a).length),[scopedJobs]);
   const matrixRows = useMemo(() => {
-    return abilityGroups.map((group) => {
-      const matchingJobs=scopedJobs.filter((job) => [...job.ai,...job.skills].some((skill) => abilityNameFor(skill) === group.name));
-      const subCounts=new Map<string,number>();
-      matchingJobs.forEach((job) => [...new Set([...job.ai,...job.skills].filter((skill) => abilityNameFor(skill) === group.name))].forEach((skill) => subCounts.set(skill,(subCounts.get(skill) || 0)+1)));
-      return { name:group.name,count:matchingJobs.length,subrequirements:[...subCounts.entries()].sort((a,b) => b[1]-a[1]).map(([name,count]) => ({name,count})),jobs:matchingJobs };
-    }).filter((row) => row.count > 0).sort((a,b) => b.count-a.count);
+    const terms=new Map<string,JobRecord[]>();
+    scopedJobs.forEach((job) => [...new Set([...job.ai,...job.skills])].forEach((term) => terms.set(term,[...(terms.get(term) || []),job])));
+    return [...terms.entries()].map(([name,matchingJobs]) => ({ name,count:matchingJobs.length,subrequirements:[{name,count:matchingJobs.length}],jobs:matchingJobs })).sort((a,b) => b.count-a.count || a.name.localeCompare(b.name,"zh-CN"));
   },[scopedJobs]);
   const selectedRow=matrixRows.find((row) => row.name === selectedAbility) || matrixRows[0];
   const selectedEvidenceJobs=(selectedRow?.jobs || []).filter((job) => selectedCompany === "全部公司" || job.company === selectedCompany);
+  const selectedEvidence=selectedEvidenceJobs.slice(0,20).flatMap((job) => evidenceForAbility(job,[selectedRow?.name || ""]).map((excerpt,index) => ({ job,excerpt,key:`${job.id}-${index}` })));
   const groupedJobs=useMemo(() => {
     const groups=new Map<string,JobRecord[]>();
     scopedJobs.forEach((job) => groups.set(job.family,[...(groups.get(job.family) || []),job]));
     return [...groups.entries()].sort((a,b) => b[1].length-a[1].length);
   },[scopedJobs]);
-  const matrixStyle = { gridTemplateColumns:`minmax(170px,1.5fr) repeat(${Math.max(companies.length,1)},minmax(78px,1fr)) minmax(78px,.8fr)` };
+  const matrixStyle = { gridTemplateColumns:`minmax(190px,1.5fr) repeat(${Math.max(companies.length,1)},minmax(96px,1fr)) minmax(88px,.8fr)` };
   const exportMatrix = () => exportPdfReport(
     "Timeless 能力透视",
     `${roleFilter} · ${companyFilter} · ${scopedJobs.length} 个岗位`,
     matrixRows.map((row) => ({
       heading:`${row.name} · ${row.count} 个岗位`,
       body:[
-        `子要求：${row.subrequirements.map((item) => `${item.name}(${item.count})`).join("、")}`,
+        `能力归类：${abilityNameFor(row.name)}；岗位覆盖：${row.count}`,
         ...row.jobs.slice(0,8).flatMap((job) => evidenceForAbility(job,row.subrequirements.map((item) => item.name)).slice(0,1).map((evidence) => `${job.company}｜${job.title}：${evidence}`)),
       ],
     })),
@@ -431,8 +443,8 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
     {matrixRows.length ? <div className="cx-matrix-layout">
       <section className="cx-panel cx-big-matrix">
         <div className="cx-panel-head"><div><span>COMPANY COVERAGE</span><h2>能力 × 公司</h2></div><small>职责/要求明示口径</small></div>
-        <div className="cx-matrix-grid cx-matrix-head" style={matrixStyle}><span>能力标签</span>{companies.map((name) => <span key={name}>{name}</span>)}<span>岗位覆盖</span></div>
-        {matrixRows.map((row) => <div className={`cx-matrix-grid cx-matrix-row ${selectedRow?.name === row.name ? "active" : ""}`} style={matrixStyle} key={row.name}><button onClick={() => {setSelectedAbility(row.name);setSelectedCompany("全部公司");}}>{row.name}<small>{row.subrequirements.slice(0,3).map((item) => item.name).join(" · ")}</small></button>{companies.map((name) => { const companyJobs=row.jobs.filter((job) => job.company === name); return <button key={name} className={companyJobs.length ? "yes" : "no"} onClick={() => {setSelectedAbility(row.name);setSelectedCompany(name);}}>{companyJobs.length ? `${companyJobs.length} 条` : "未明示"}</button>; })}<strong>{row.count}/{scopedJobs.length}</strong></div>)}
+        <div className="cx-matrix-grid cx-matrix-head" style={matrixStyle}><span>动态能力标签</span>{companies.map((name) => <span key={name}>{name}</span>)}<span>岗位覆盖</span></div>
+        {matrixRows.map((row) => <div className={`cx-matrix-grid cx-matrix-row ${selectedRow?.name === row.name ? "active" : ""}`} style={matrixStyle} key={row.name}><button onClick={() => {setSelectedAbility(row.name);setSelectedCompany("全部公司");}}>{row.name}<small>{abilityNameFor(row.name)}</small></button>{companies.map((name) => { const companyJobs=row.jobs.filter((job) => job.company === name); return <button key={name} className={companyJobs.length ? "yes" : "no"} onClick={() => {setSelectedAbility(row.name);setSelectedCompany(name);}}>{companyJobs.length ? `${companyJobs.length} 条` : "未明示"}</button>; })}<strong>{row.count}/{scopedJobs.length}</strong></div>)}
         <div className="cx-matrix-legend"><span><i className="yes" /> JD 明确</span><span><i className="no" /> 未明示，不等于不需要</span></div>
       </section>
       <aside className="cx-panel cx-stage-ladder">
@@ -442,9 +454,9 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
     </div> : <EmptyMatrix family={`${roleFilter} / ${companyFilter}`} />}
     {selectedRow && <section className="cx-panel cx-ability-drilldown">
       <div className="cx-panel-head"><div><span>ABILITY DRILLDOWN</span><h2>{selectedRow.name}</h2></div><small>{selectedRow.count} 个岗位明示</small></div>
-      <div className="cx-subrequirement-cloud">{selectedRow.subrequirements.map((item) => <button key={item.name}>{item.name}<b>{item.count}</b></button>)}</div>
+      <div className="cx-ability-summary"><b>{abilityNameFor(selectedRow.name)}</b><span>该能力来自 {selectedRow.count} 个岗位、{[...new Set(selectedRow.jobs.map((job) => job.company))].length} 家公司；下方只展示可回到岗位原文核验的完整要求。</span></div>
       <div className="cx-company-tabs"><button className={selectedCompany === "全部公司" ? "active" : ""} onClick={() => setSelectedCompany("全部公司")}>全部公司</button>{[...new Set(selectedRow.jobs.map((job) => job.company))].map((name) => <button key={name} className={selectedCompany === name ? "active" : ""} onClick={() => setSelectedCompany(name)}>{name}</button>)}</div>
-      <div className="cx-hard-evidence">{selectedEvidenceJobs.slice(0,10).map((job) => { const excerpts=evidenceForAbility(job,selectedRow.subrequirements.map((item) => item.name)); return <article key={job.id}><div><CompanyLogo name={job.company} /><span><b>{job.company} · {job.title}</b><small>{job.track}</small></span><button onClick={() => onJob(job)}>完整岗位 ↗</button></div>{excerpts.length ? excerpts.map((excerpt,index) => <p key={index}>{excerpt}</p>) : <p>该岗位的结构化标签明确命中此能力类；完整原文要求请打开岗位详情核验。</p>}</article>; })}</div>
+      <div className="cx-hard-evidence">{selectedEvidence.map(({job,excerpt,key}) => <article key={key}><div><CompanyLogo name={job.company} /><span><b>{job.company} · {job.title}</b><small>{job.track}</small></span><button onClick={() => onJob(job)}>完整岗位 ↗</button></div><p>{excerpt}</p></article>)}{selectedEvidence.length === 0 && <div className="cx-evidence-empty"><b>暂无可逐字定位的完整原文段落</b><p>当前标签来自岗位结构化字段，但没有与该词同时出现的完整要求句。为避免把推断当原文，这里不再展示模板话术；可打开岗位详情核验其技术、经历、加分项与软素质原文。</p></div>}</div>
     </section>}
     <section className="cx-panel cx-evidence-chain">
       <div className="cx-panel-head"><div><span>ROLE CLUSTERS</span><h2>支撑该视图的岗位簇</h2></div><small>按业务角色归类，不再平铺</small></div>
@@ -492,14 +504,17 @@ function EmptyMatrix({ family }: { family:string }) {
   return <section className="cx-panel cx-empty"><span>DATA INTEGRITY GUARD</span><strong>{family}</strong><p>当前职责完整样本不足 5 条或覆盖公司不足 3 家，暂不生成横向百分比。已核验岗位仍可在岗位库查看。</p><i>等待更多官方证据</i></section>;
 }
 
-function JobsView({ jobs, query, company, track, onCompany, onTrack, onJob }: { jobs:JobRecord[]; query:string; company:string; track:string; onCompany:(v:string)=>void; onTrack:(v:string)=>void; onJob:(job:JobRecord)=>void }) {
+function JobsView({ jobs, totalJobs, query, company, track, statusFilter, aiOnly, dateScope, onCompany, onTrack, onStatus, onAiOnly, onDateScope, onJob }: { jobs:JobRecord[]; totalJobs:number; query:string; company:string; track:string; statusFilter:string; aiOnly:boolean; dateScope:string; onCompany:(v:string)=>void; onTrack:(v:string)=>void; onStatus:(v:string)=>void; onAiOnly:(v:boolean)=>void; onDateScope:(v:string)=>void; onJob:(job:JobRecord)=>void }) {
   const exportJobs = () => exportPdfReport("Timeless 岗位证据库",`${company} · ${track} · ${jobs.length} 条结果`,jobs.slice(0,80).map((job) => ({ heading:`${job.company}｜${job.title}`,body:[`${job.track}｜${job.location}｜${job.status}`,job.summary,job.technicalRequirements ? `技术要求：${job.technicalRequirements}` : "技术要求：原文未明示",job.experienceRequirements ? `经历要求：${job.experienceRequirements}` : "经历要求：原文未明示",job.bonusSignals?.length ? `加分项：${job.bonusSignals.join("；")}` : "加分项：原文未明示",`官方来源：${job.sourceUrl}`] })));
   return <>
     <PageTitle eyebrow="03 / VERIFIED JOBS" title="真实岗位证据库" desc="只展示有来源的岗位或招聘项目；职责不完整的记录不会进入能力统计。" actions={<button className="cx-primary" onClick={exportJobs}>导出当前筛选 PDF</button>} />
     <div className="cx-filterbar">
       <label>公司<select value={company} onChange={(e) => onCompany(e.target.value)}><option>全部公司</option>{companySources.map((item) => <option key={item.name}>{item.name}</option>)}</select></label>
       <label>招聘类型<select value={track} onChange={(e) => onTrack(e.target.value)}><option>全部类型</option><option>校招</option><option>实习</option><option>管培生</option><option>社会招聘</option></select></label>
-      <span>{query ? `关键词「${query}」· ` : ""}{jobs.length} 条结果</span>
+      <label>岗位状态<select value={statusFilter} onChange={(e) => onStatus(e.target.value)}><option>全部历史</option><option>在招</option><option>已下线</option><option>待复核</option><option>招聘项目</option></select></label>
+      <label>采集时间<select value={dateScope} onChange={(e) => onDateScope(e.target.value)}><option>全部时间</option><option>近半年</option><option>近一年</option></select></label>
+      <label className="cx-check-filter"><input type="checkbox" checked={aiOnly} onChange={(e) => onAiOnly(e.target.checked)} />仅看明确 AI 要求</label>
+      <span>{query ? `关键词「${query}」· ` : ""}{jobs.length} 条结果 / 历史总库 {totalJobs} 条</span>
     </div>
     <section className="cx-job-grid">{jobs.map((job) => <article key={job.id}>
       <div className="cx-job-card-top"><CompanyLogo name={job.company} /><div><b>{job.company}</b><small>{job.sourceTier}</small></div><span className={`cx-status ${job.status === "在招" ? "live" : job.status === "招聘项目" ? "program" : "review"}`}>{job.status}</span></div>
@@ -600,6 +615,7 @@ function SourcesView({ jobs, sourceRuns, onRefresh, onSyncInsights, insightSynce
   };
   return <>
     <PageTitle eyebrow="05 / SOURCE COVERAGE" title="官方岗位覆盖" desc="第一步检查公司岗位；第二步用最新岗位统一重算市场雷达、能力透视、岗位库、趋势周报与 AI 学习。" actions={<><button className="cx-primary" onClick={syncAll} disabled={syncingAll}>{syncingAll ? `检查中 ${syncProgress}/${companySources.length}` : "① 一键检查全部公司"}</button><button className="cx-primary cx-sync-insights" onClick={onSyncInsights}>② 刷新五大模块{insightSyncedAt ? ` · ${insightSyncedAt}` : ""}</button><button className="cx-primary" onClick={onTestModel}>测试 AI 连接 · {modelStatus}</button></>} />
+    <section className="cx-retention-policy"><div><span>HISTORICAL CAPACITY</span><b>{jobs.length} 条历史岗位已加载</b></div><p><strong>总库不设业务总量上限。</strong>每家公司单次检查最多接纳 120 条目标岗位，后续检查会按官方职位标识去重累积；在招、待复核和已下线记录均分页加载并永久保留。岗位失效只改变状态，不会清空原文证据或 AI 分析。</p></section>
     <section className="cx-pipeline"><div><i>01</i><b>读取官方公开页</b><span>不绕过登录、验证码与访问限制</span></div><em>→</em><div><i>02</i><b>筛选目标岗位</b><span>排除内容、新媒体与直播运营</span></div><em>→</em><div><i>03</i><b>逐字证据校验</b><span>标题与要求必须在原文存在</span></div><em>→</em><div><i>04</i><b>更新岗位库</b><span>新岗位写入，失效岗位保留并标记</span></div></section>
     <div className="cx-status-guide"><span><b>① 数据检查</b> 从官方接口更新岗位</span><span><b>② 洞察刷新</b> 五个模块使用同一最新快照</span><span><b>历史保留</b> 已下线岗位和旧技术栈不删除</span><span><b>官方直达</b> 每个岗位优先链接具体详情页</span></div>
     <section className="cx-source-grid">{companySources.map((source) => { const run=sourceRuns[source.name]; const companyJobs=jobs.filter((job) => job.company === source.name); const active=companyJobs.filter((job) => job.status === "在招").length; const status=companyJobs.length ? `已收录 ${companyJobs.length} 条` : "持续同步中"; return <article key={source.name}>

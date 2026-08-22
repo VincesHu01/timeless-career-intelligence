@@ -11,9 +11,12 @@ function list(value: string) {
   }
 }
 
-export async function GET() {
+export async function GET(request:Request) {
+  const url=new URL(request.url);
+  const limit=Math.min(500,Math.max(1,Number(url.searchParams.get("limit")) || 500));
+  const offset=Math.max(0,Number(url.searchParams.get("offset")) || 0);
   const db = getDb();
-  const records = await db.select().from(jobs).orderBy(desc(jobs.lastSeenAt)).limit(500);
+  const records = await db.select().from(jobs).orderBy(desc(jobs.lastSeenAt)).limit(limit).offset(offset);
   return Response.json({
     jobs: records.map((job) => ({
       id: job.id,
@@ -39,5 +42,6 @@ export async function GET() {
       firstSeenAt: job.firstSeenAt,
       lastSeenAt: job.lastSeenAt,
     })),
+    pagination:{ limit,offset,hasMore:records.length === limit,nextOffset:records.length === limit ? offset+limit : null },
   }, { headers: { "Cache-Control": "no-store" } });
 }
