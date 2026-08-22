@@ -41,6 +41,7 @@ const navItems: { id: View; label: string; en: string; icon: string }[] = [
 ];
 
 const REVIEW_DUE_KEY = "cortex_review_due";
+const HIDDEN_JOBS_KEY = "timeless_hidden_jobs_v1";
 const AI_COMPANIES = new Set(["DeepSeek","Kimi（月之暗面）","智谱AI"]);
 type ReviewDue = Record<string, { dueAt:string; notifiedAt?:string }>;
 
@@ -70,6 +71,8 @@ export default function CortexApp() {
   const [aiOnly,setAiOnly] = useState(false);
   const [dateScope,setDateScope] = useState("全部时间");
   const [filterNow] = useState(() => Date.now());
+  const [hiddenJobIds,setHiddenJobIds] = useState<string[]>([]);
+  const [showHiddenJobs,setShowHiddenJobs] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [session, setSession] = useState<Session | null>(null);
@@ -124,6 +127,11 @@ export default function CortexApp() {
   }, []);
 
   useEffect(() => {
+    try { const saved=JSON.parse(localStorage.getItem(HIDDEN_JOBS_KEY) || "[]") as string[]; queueMicrotask(() => setHiddenJobIds(saved)); }
+    catch { localStorage.removeItem(HIDDEN_JOBS_KEY); }
+  }, []);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timer);
@@ -168,8 +176,17 @@ export default function CortexApp() {
       exactTrackMatch(job,track) &&
       (statusFilter === "全部历史" || job.status === statusFilter) &&
       (!aiOnly || job.ai.length > 0) &&
+      (showHiddenJobs ? hiddenJobIds.includes(job.id) : !hiddenJobIds.includes(job.id)) &&
       (dateScope === "全部时间" || Date.parse(job.firstSeenAt || job.date) >= filterNow-(dateScope === "近半年" ? 183 : 365)*86400000);
-  }), [jobs, query, company, track,statusFilter,aiOnly,dateScope,filterNow]);
+  }), [jobs, query, company, track,statusFilter,aiOnly,dateScope,filterNow,hiddenJobIds,showHiddenJobs]);
+
+  const toggleHiddenJob = (id:string) => {
+    setHiddenJobIds((current) => {
+      const next=current.includes(id) ? current.filter((item) => item !== id) : [...current,id];
+      localStorage.setItem(HIDDEN_JOBS_KEY,JSON.stringify(next));
+      return next;
+    });
+  };
 
   const navigate = (next: View) => {
     setView(next);
@@ -315,7 +332,7 @@ export default function CortexApp() {
         <main className="cx-content">
           {view === "overview" && <Overview jobs={jobs} onNavigate={navigate} onJob={setSelectedJob} onRefresh={requestRefresh} />}
           {view === "matrix" && <MatrixView jobs={jobs} onJob={setSelectedJob} />}
-          {view === "jobs" && <JobsView jobs={filteredJobs} totalJobs={jobs.length} query={query} company={company} track={track} statusFilter={statusFilter} aiOnly={aiOnly} dateScope={dateScope} onCompany={setCompany} onTrack={setTrack} onStatus={setStatusFilter} onAiOnly={setAiOnly} onDateScope={setDateScope} onJob={setSelectedJob} />}
+          {view === "jobs" && <JobsView jobs={filteredJobs} totalJobs={jobs.length} hiddenCount={hiddenJobIds.length} showHidden={showHiddenJobs} query={query} company={company} track={track} statusFilter={statusFilter} aiOnly={aiOnly} dateScope={dateScope} onCompany={setCompany} onTrack={setTrack} onStatus={setStatusFilter} onAiOnly={setAiOnly} onDateScope={setDateScope} onShowHidden={setShowHiddenJobs} onToggleHidden={toggleHiddenJob} onJob={setSelectedJob} />}
           {view === "weekly" && <WeeklyView report={weeklyReport} session={session} onReport={setWeeklyReport} onToast={setToast} />}
           {view === "learn" && <LearnView jobs={jobs} reviews={reviews} onReview={completeReview} onNotify={enableNotifications} />}
           {view === "sources" && <SourcesView jobs={jobs} sourceRuns={sourceRuns} onRefresh={requestRefresh} onSyncInsights={syncAllInsights} insightSyncedAt={insightSyncedAt} onTestModel={testModel} modelStatus={modelStatus} />}
@@ -504,7 +521,7 @@ function EmptyMatrix({ family }: { family:string }) {
   return <section className="cx-panel cx-empty"><span>DATA INTEGRITY GUARD</span><strong>{family}</strong><p>当前职责完整样本不足 5 条或覆盖公司不足 3 家，暂不生成横向百分比。已核验岗位仍可在岗位库查看。</p><i>等待更多官方证据</i></section>;
 }
 
-function JobsView({ jobs, totalJobs, query, company, track, statusFilter, aiOnly, dateScope, onCompany, onTrack, onStatus, onAiOnly, onDateScope, onJob }: { jobs:JobRecord[]; totalJobs:number; query:string; company:string; track:string; statusFilter:string; aiOnly:boolean; dateScope:string; onCompany:(v:string)=>void; onTrack:(v:string)=>void; onStatus:(v:string)=>void; onAiOnly:(v:boolean)=>void; onDateScope:(v:string)=>void; onJob:(job:JobRecord)=>void }) {
+function JobsView({ jobs, totalJobs, hiddenCount, showHidden, query, company, track, statusFilter, aiOnly, dateScope, onCompany, onTrack, onStatus, onAiOnly, onDateScope, onShowHidden, onToggleHidden, onJob }: { jobs:JobRecord[]; totalJobs:number; hiddenCount:number; showHidden:boolean; query:string; company:string; track:string; statusFilter:string; aiOnly:boolean; dateScope:string; onCompany:(v:string)=>void; onTrack:(v:string)=>void; onStatus:(v:string)=>void; onAiOnly:(v:boolean)=>void; onDateScope:(v:string)=>void; onShowHidden:(v:boolean)=>void; onToggleHidden:(id:string)=>void; onJob:(job:JobRecord)=>void }) {
   const exportJobs = () => exportPdfReport("Timeless 岗位证据库",`${company} · ${track} · ${jobs.length} 条结果`,jobs.slice(0,80).map((job) => ({ heading:`${job.company}｜${job.title}`,body:[`${job.track}｜${job.location}｜${job.status}`,job.summary,job.technicalRequirements ? `技术要求：${job.technicalRequirements}` : "技术要求：原文未明示",job.experienceRequirements ? `经历要求：${job.experienceRequirements}` : "经历要求：原文未明示",job.bonusSignals?.length ? `加分项：${job.bonusSignals.join("；")}` : "加分项：原文未明示",`官方来源：${job.sourceUrl}`] })));
   return <>
     <PageTitle eyebrow="03 / VERIFIED JOBS" title="真实岗位证据库" desc="只展示有来源的岗位或招聘项目；职责不完整的记录不会进入能力统计。" actions={<button className="cx-primary" onClick={exportJobs}>导出当前筛选 PDF</button>} />
@@ -514,6 +531,7 @@ function JobsView({ jobs, totalJobs, query, company, track, statusFilter, aiOnly
       <label>岗位状态<select value={statusFilter} onChange={(e) => onStatus(e.target.value)}><option>全部历史</option><option>在招</option><option>已下线</option><option>待复核</option><option>招聘项目</option></select></label>
       <label>采集时间<select value={dateScope} onChange={(e) => onDateScope(e.target.value)}><option>全部时间</option><option>近半年</option><option>近一年</option></select></label>
       <label className="cx-check-filter"><input type="checkbox" checked={aiOnly} onChange={(e) => onAiOnly(e.target.checked)} />仅看明确 AI 要求</label>
+      <label className="cx-check-filter"><input type="checkbox" checked={showHidden} onChange={(e) => onShowHidden(e.target.checked)} />查看已隐藏（{hiddenCount}）</label>
       <span>{query ? `关键词「${query}」· ` : ""}{jobs.length} 条结果 / 历史总库 {totalJobs} 条</span>
     </div>
     <section className="cx-job-grid">{jobs.map((job) => <article key={job.id}>
@@ -521,7 +539,7 @@ function JobsView({ jobs, totalJobs, query, company, track, statusFilter, aiOnly
       <h2>{job.title}</h2><p>{job.summary}</p>
       <div className="cx-tags">{[...job.ai,...job.skills].slice(0,5).map((tag) => <span key={tag}>{tag}</span>)}{job.skills.length + job.ai.length === 0 && <span className="muted">职责待同步</span>}</div>
       <div className="cx-job-meta"><span>⌖ {job.location}</span><span>◷ {job.date}</span></div>
-      <div className="cx-job-actions"><button onClick={() => onJob(job)}>查看规范化要求</button>{hasDirectJobSource(job.sourceUrl) ? <a href={job.sourceUrl} target="_blank" rel="noreferrer">打开岗位原文 <b>↗</b></a> : <span>具体详情链接同步中</span>}</div>
+      <div className="cx-job-actions"><button onClick={() => onJob(job)}>查看规范化要求</button>{hasDirectJobSource(job.sourceUrl) ? <a href={job.sourceUrl} target="_blank" rel="noreferrer">打开岗位原文 <b>↗</b></a> : <span>具体详情链接同步中</span>}<button className="cx-hide-job" onClick={() => onToggleHidden(job.id)}>{showHidden ? "恢复到岗位库" : "从我的视图隐藏"}</button></div>
     </article>)}</section>
     {jobs.length === 0 && <div className="cx-panel cx-empty"><strong>没有匹配的已核验记录</strong><p>试试减少筛选条件。Timeless 不会为了填满列表生成不存在的岗位。</p></div>}
   </>;
