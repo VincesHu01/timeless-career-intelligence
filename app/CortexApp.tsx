@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { companySources, knowledgeCards, reviewIntervals, verifiedJobs, type JobRecord } from "./cortex-data";
 import ParticleField from "./ParticleField";
 import { abilityGroups, abilityNameFor, dynamicKnowledgeCards, evidenceForAbility, exactTrackMatch, exportPdfReport, externalLearningUrl } from "./insight-utils";
@@ -460,6 +460,8 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
   const [selectedAbility,setSelectedAbility] = useState(abilityGroups[0].name as string);
   const [selectedCompany,setSelectedCompany] = useState("全部公司");
   const [abilityCategory,setAbilityCategory] = useState("全部能力");
+  const matrixLabelsRef = useRef<HTMLDivElement>(null);
+  const matrixCompaniesRef = useRef<HTMLDivElement>(null);
   const baseScopeJobs = useMemo(() => jobs.filter((job) => {
     const inferredRole = job.roleType || (/运营/.test(job.title) ? "运营岗" : "产品岗");
     const roleMatch = roleFilter === "全部岗位" || inferredRole === roleFilter;
@@ -507,7 +509,25 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
     {matrixRows.length ? <div className="cx-matrix-layout">
       <section className="cx-panel cx-big-matrix">
         <div className="cx-panel-head"><div><span>COMPANY COVERAGE</span><h2>能力 × 公司</h2></div><small>职责/要求明示口径</small></div>
-        <table className="cx-matrix-table"><thead><tr><th>动态能力标签</th>{companies.map((name) => <th key={name}>{name}</th>)}<th>岗位覆盖</th></tr></thead><tbody>{displayRows.map((row) => <tr className={selectedRow?.name === row.name ? "active" : ""} key={row.name}><th scope="row"><button onClick={() => {setSelectedAbility(row.name);setSelectedCompany("全部公司");}}>{row.name}<small>{abilityNameFor(row.name)}</small></button></th>{companies.map((name) => { const companyJobs=row.jobs.filter((job) => job.company === name); return <td key={name}><button className={companyJobs.length ? "yes" : "no"} onClick={() => {setSelectedAbility(row.name);setSelectedCompany(name);}}>{companyJobs.length ? `${companyJobs.length} 条` : "未明示"}</button></td>; })}<td><strong>{row.count}/{scopedJobs.length}</strong></td></tr>)}</tbody></table>
+        <div className="cx-matrix-shell">
+          <div className="cx-matrix-label-head">动态能力标签</div>
+          <div className="cx-matrix-company-head" ref={matrixCompaniesRef}>
+            <div className="cx-matrix-company-grid" style={{ gridTemplateColumns:`repeat(${companies.length}, 104px) 92px` }}>
+              {companies.map((name) => <span key={name}>{name}</span>)}<span>岗位覆盖</span>
+            </div>
+          </div>
+          <div className="cx-matrix-label-body" ref={matrixLabelsRef}>
+            {displayRows.map((row) => <button className={selectedRow?.name === row.name ? "active" : ""} key={row.name} onClick={() => {setSelectedAbility(row.name);setSelectedCompany("全部公司");}}><b>{row.name}</b><small>{abilityNameFor(row.name)}</small></button>)}
+          </div>
+          <div className="cx-matrix-values" onScroll={(event) => {
+            if (matrixLabelsRef.current) matrixLabelsRef.current.scrollTop = event.currentTarget.scrollTop;
+            if (matrixCompaniesRef.current) matrixCompaniesRef.current.scrollLeft = event.currentTarget.scrollLeft;
+          }}>
+            <div className="cx-matrix-value-grid">
+              {displayRows.map((row) => <div className={`cx-matrix-value-row ${selectedRow?.name === row.name ? "active" : ""}`} style={{ gridTemplateColumns:`repeat(${companies.length}, 104px) 92px` }} key={row.name}>{companies.map((name) => { const companyJobs=row.jobs.filter((job) => job.company === name); return <button className={companyJobs.length ? "yes" : "no"} key={name} onClick={() => {setSelectedAbility(row.name);setSelectedCompany(name);}}>{companyJobs.length ? `${companyJobs.length} 条` : "未明示"}</button>; })}<strong>{row.count}/{scopedJobs.length}</strong></div>)}
+            </div>
+          </div>
+        </div>
         <div className="cx-matrix-legend"><span><i className="yes" /> JD 明确</span><span><i className="no" /> 未明示，不等于不需要</span></div>
       </section>
       <aside className="cx-panel cx-stage-ladder">
