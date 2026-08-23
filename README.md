@@ -1,19 +1,19 @@
 # Timeless
 
-Timeless 是面向中国大陆大学生与应届生的互联网产品/运营岗位情报与 AI 学习系统。它以官方招聘证据为基础，提供岗位历史库、能力 × 公司透视、岗位合并洞察、趋势周报、AI 技术栈学习和艾宾浩斯复习提醒。
+Timeless is a career-intelligence and AI-learning platform for university students and new graduates in mainland China who are pursuing product management and operations roles in the technology industry. Built on verifiable recruitment evidence, it provides a historical job archive, capability-by-company comparisons, cross-company role insights, weekly market reports, AI technology learning paths, and Ebbinghaus-based review reminders.
 
-## 技术架构
+## Architecture
 
-- React 19 + Next.js App Router；同一源码支持 Next.js/Vercel 与 Vinext/OpenAI Sites。
-- TypeScript、响应式 CSS、Canvas 粒子编队。
-- Drizzle ORM + Cloudflare D1；Vercel 通过 D1 官方 REST API 访问同一 SQLite 数据模型。
-- Supabase Auth；浏览器只使用 publishable key，服务端校验用户 JWT。
-- 火山方舟 OpenAI-compatible Chat Completions API。
-- 浏览器 Notification / Service Worker 复习提醒与本地历史偏好。
+- React 19 and the Next.js App Router. The same source code supports both Next.js/Vercel and Vinext/OpenAI Sites.
+- TypeScript, responsive CSS, and interactive Canvas particle formations.
+- Drizzle ORM and Cloudflare D1. On Vercel, the application accesses the same SQLite data model through Cloudflare's official D1 REST API.
+- Supabase Auth. The browser receives only the publishable key, while the server validates user JWTs.
+- Volcengine Ark through its OpenAI-compatible Chat Completions API.
+- Browser Notifications and a Service Worker for review reminders, with learning history and preferences stored locally.
 
-## 本地运行
+## Run Locally
 
-要求 Node.js `>=22.13.0`。
+Node.js `>=22.13.0` is required.
 
 ```bash
 npm ci
@@ -21,48 +21,48 @@ cp .env.example .env.local
 npm run dev:vercel
 ```
 
-打开 `http://localhost:3000`。首次运行前请按下文准备数据库并补全 `.env.local`。
+Open `http://localhost:3000`. Before the first run, prepare the database and complete `.env.local` as described below.
 
-## 需要配置的密钥
+## Required Configuration
 
-1. **Supabase Auth**：填写 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`。在 Supabase Authentication 中开启 Email 登录，并把本地及生产域名加入 Redirect URLs。
-2. **火山方舟**：填写 `ARK_API_KEY`、实际 endpoint/model ID `ARK_MODEL_ID`；默认 API 根地址为 `https://ark.cn-beijing.volces.com/api/v3`。
-3. **Cloudflare D1**：创建 D1 数据库，并创建仅包含该账号 `D1 Read`、`D1 Write` 权限的 API Token，填写三个 `CLOUDFLARE_*` 变量。
-4. **定时接口密钥**：为 `CORTEX_CRON_SECRET`、`CORTEX_BACKFILL_SECRET` 生成不可预测的随机值。
+1. **Supabase Auth:** Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Enable email authentication in Supabase Authentication and add both the local and production domains to the allowed redirect URLs.
+2. **Volcengine Ark:** Set `ARK_API_KEY` and the actual endpoint/model ID in `ARK_MODEL_ID`. The default API base URL is `https://ark.cn-beijing.volces.com/api/v3`.
+3. **Cloudflare D1:** Create a D1 database and an API token limited to `D1 Read` and `D1 Write` permissions for the relevant account. Then set the three `CLOUDFLARE_*` variables.
+4. **Scheduled-endpoint secrets:** Generate unpredictable random values for `CORTEX_CRON_SECRET` and `CORTEX_BACKFILL_SECRET`.
 
-任何 secret、方舟 API Key、D1 API Token 都不得提交到 Git。`NEXT_PUBLIC_*` 会进入浏览器，只能放 Supabase publishable key，不能放 service role/secret key。
+Never commit secrets, Ark API keys, or D1 API tokens to Git. Variables prefixed with `NEXT_PUBLIC_` are exposed to the browser; use only the Supabase publishable key there, never a service-role or secret key.
 
-## 初始化 D1
+## Initialize Cloudflare D1
 
-把 Cloudflare 三个变量加载进当前终端后执行：
+Load the three Cloudflare variables into the current terminal session, then run:
 
 ```bash
 npm run db:setup:remote
 ```
 
-脚本会按顺序执行 `drizzle/` 中的全部迁移。之后运行 `npm run dev:vercel`，访问 `/api/jobs` 应返回 JSON，而不是数据库配置错误。
+The script applies every migration in `drizzle/` in order. Then run `npm run dev:vercel` and open `/api/jobs`. The endpoint should return JSON instead of a database-configuration error.
 
-## 部署到 Vercel
+## Deploy to Vercel
 
-1. Fork/clone 本仓库并在 Vercel 导入。
-2. 将 `.env.example` 中除 `TIMELESS_BACKEND_ORIGIN` 外的变量添加到 Production、Preview、Development。
-3. Build Command 使用 `npm run build:vercel`，Install Command 使用 `npm ci`（仓库中的 `vercel.json` 已配置）。
-4. 部署后，把最终 `https://*.vercel.app` 域名加入 Supabase Auth Redirect URLs。
+1. Fork or clone this repository and import it into Vercel.
+2. Add the variables from `.env.example`, except `TIMELESS_BACKEND_ORIGIN`, to the Production, Preview, and Development environments.
+3. Use `npm run build:vercel` as the Build Command and `npm ci` as the Install Command. These settings are already included in `vercel.json`.
+4. After deployment, add the final `https://*.vercel.app` domain to the Supabase Auth redirect URLs.
 
-若已有一个完整运行的 Timeless 后端，也可以只设置 `TIMELESS_BACKEND_ORIGIN=https://你的后端域名`。Vercel 会把 `/api/*` 透明代理到该后端；此时不再填写远程 D1 凭据。
+If you already operate a complete Timeless backend, you may set only `TIMELESS_BACKEND_ORIGIN=https://your-backend.example`. Vercel will transparently proxy `/api/*` to that backend, so remote D1 credentials are not required in the Vercel project.
 
-## OpenAI Sites / Cloudflare 构建
+## OpenAI Sites / Cloudflare Build
 
-Sites 环境通过 `.openai/hosting.json` 注入 `DB` binding：
+The Sites environment injects the `DB` binding through `.openai/hosting.json`:
 
 ```bash
 npm run dev
 npm run build
 ```
 
-Vercel 使用 `npm run build:vercel`。两条构建链共享 `app/`、API 路由和业务逻辑，不需要维护两份前端。
+Vercel uses `npm run build:vercel`. Both build pipelines share `app/`, the API routes, and all business logic, so there is no duplicated frontend to maintain.
 
-## 验证
+## Verification
 
 ```bash
 npm run lint
@@ -71,4 +71,4 @@ npm run build:vercel
 npm test
 ```
 
-采集器只应访问公司公开招聘页面/公开职位接口，并保留具体来源 URL、采集时间和证据原文。请在使用地遵守目标站点条款、robots 约束、速率限制与个人信息保护要求。
+Collectors should access only public company recruitment pages or public job APIs. Every record should retain its specific source URL, collection timestamp, and original evidence. When operating the system, comply with the target site's terms, robots directives, rate limits, and applicable personal-information protection requirements.
