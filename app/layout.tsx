@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://timeless-career-intelligence.vinceshu01.chatgpt.site"),
   title: "Timeless｜大厂产品与运营岗位能力雷达",
   description: "用真实招聘证据看懂大厂产品与运营岗位，并把 AI 能力转化为可执行的学习路径。",
   openGraph: {

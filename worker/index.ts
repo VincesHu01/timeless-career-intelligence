@@ -27,6 +27,7 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    (globalThis as typeof globalThis & { __TIMELESS_D1__?:D1Database }).__TIMELESS_D1__ = env.DB;
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {
