@@ -66,6 +66,26 @@ const LEARNING_DEEP_DIVE:Record<string,string> = {
   rag:"关键指标：Recall@K、重排命中率、答案支持率、引用正确率、拒答率和知识时效。常见误区：只测最终答案；切片越小越好；检索无结果仍强制生成。",
   python_sql:"关键指标：样本覆盖、脚本可复现率、指标口径一致性、失败重跑率和数据泄漏检查。常见误区：手工改表不留版本；SQL 分母漂移；实验没有固定随机种子与模型版本。",
 };
+type PaperLink = { title:string; note:string; url:string };
+const PAPER_LIBRARY:Record<string,PaperLink> = {
+  transformer:{ title:"Attention Is All You Need",note:"Transformer 原始论文",url:"https://arxiv.org/abs/1706.03762" },
+  react:{ title:"ReAct: Synergizing Reasoning and Acting in Language Models",note:"ReAct 原始论文",url:"https://arxiv.org/abs/2210.03629" },
+  lora:{ title:"LoRA: Low-Rank Adaptation of Large Language Models",note:"LoRA 原始论文",url:"https://arxiv.org/abs/2106.09685" },
+  dpo:{ title:"Direct Preference Optimization",note:"DPO 原始论文",url:"https://arxiv.org/abs/2305.18290" },
+  grpo:{ title:"DeepSeekMath",note:"提出 GRPO 的论文",url:"https://arxiv.org/abs/2402.03300" },
+  rag:{ title:"Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",note:"RAG 原始论文",url:"https://arxiv.org/abs/2005.11401" },
+};
+
+function papersForLearningCard(id:string,title:string) {
+  const keys:string[]=[];
+  if (id === "transformer" || /Transformer|Attention/i.test(title)) keys.push("transformer");
+  if (id === "planning" || /ReAct/i.test(title)) keys.push("react");
+  if (id === "posttraining" || /LoRA/i.test(title)) keys.push("lora");
+  if (id === "posttraining" || /DPO/i.test(title)) keys.push("dpo");
+  if (id === "posttraining" || /GRPO/i.test(title)) keys.push("grpo");
+  if (id === "rag" || /RAG|Retrieval-Augmented/i.test(title)) keys.push("rag");
+  return [...new Set(keys)].map((key) => PAPER_LIBRARY[key]);
+}
 type ReviewDue = Record<string, { dueAt:string; notifiedAt?:string }>;
 
 function Logo() {
@@ -387,7 +407,7 @@ function Overview({ jobs, onNavigate, onJob, onRefresh }: { jobs:JobRecord[]; on
     <section className="cx-hero-grid">
       <div className="cx-hero-copy">
         <div className="cx-kicker"><i /> MARKET SIGNAL / {currentDay}</div>
-        <h1>招聘市场不会给你答案，<br /><em>Timeless</em> 给你证据。</h1>
+        <h1>招聘市场不会给你答案，<br /><em>Timeless</em><span className="cx-hero-proof">给你证据。</span></h1>
         <p>追踪 {companySources.length} 家互联网与 AI 公司，只分析产品与目标运营岗位。每一个结论都可以回到官方职位、原文证据与核验时间。</p>
         <div className="cx-hero-buttons"><button onClick={() => onNavigate("matrix")}>查看能力透视 <b>↗</b></button><button onClick={() => onNavigate("jobs")}>浏览真实样本</button></div>
         <div className="cx-trust-row"><span><b>{companySources.length}</b> 家目标公司</span><span><b>{jobs.length}</b> 条证据记录</span><span><b>0</b> 条无来源结论</span></div>
@@ -464,7 +484,6 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
     scopedJobs.forEach((job) => groups.set(job.family,[...(groups.get(job.family) || []),job]));
     return [...groups.entries()].sort((a,b) => b[1].length-a[1].length);
   },[scopedJobs]);
-  const matrixStyle = { gridTemplateColumns:`210px repeat(${Math.max(companies.length,1)},104px) 92px` };
   const exportMatrix = () => exportPdfReport(
     "Timeless 能力透视",
     `${roleFilter} · ${companyFilter} · ${scopedJobs.length} 个岗位`,
@@ -488,8 +507,7 @@ function MatrixView({ jobs, onJob }: { jobs:JobRecord[]; onJob:(job:JobRecord)=>
     {matrixRows.length ? <div className="cx-matrix-layout">
       <section className="cx-panel cx-big-matrix">
         <div className="cx-panel-head"><div><span>COMPANY COVERAGE</span><h2>能力 × 公司</h2></div><small>职责/要求明示口径</small></div>
-        <div className="cx-matrix-grid cx-matrix-head" style={matrixStyle}><span>动态能力标签</span>{companies.map((name) => <span key={name}>{name}</span>)}<span>岗位覆盖</span></div>
-        {displayRows.map((row) => <div className={`cx-matrix-grid cx-matrix-row ${selectedRow?.name === row.name ? "active" : ""}`} style={matrixStyle} key={row.name}><button onClick={() => {setSelectedAbility(row.name);setSelectedCompany("全部公司");}}>{row.name}<small>{abilityNameFor(row.name)}</small></button>{companies.map((name) => { const companyJobs=row.jobs.filter((job) => job.company === name); return <button key={name} className={companyJobs.length ? "yes" : "no"} onClick={() => {setSelectedAbility(row.name);setSelectedCompany(name);}}>{companyJobs.length ? `${companyJobs.length} 条` : "未明示"}</button>; })}<strong>{row.count}/{scopedJobs.length}</strong></div>)}
+        <table className="cx-matrix-table"><thead><tr><th>动态能力标签</th>{companies.map((name) => <th key={name}>{name}</th>)}<th>岗位覆盖</th></tr></thead><tbody>{displayRows.map((row) => <tr className={selectedRow?.name === row.name ? "active" : ""} key={row.name}><th scope="row"><button onClick={() => {setSelectedAbility(row.name);setSelectedCompany("全部公司");}}>{row.name}<small>{abilityNameFor(row.name)}</small></button></th>{companies.map((name) => { const companyJobs=row.jobs.filter((job) => job.company === name); return <td key={name}><button className={companyJobs.length ? "yes" : "no"} onClick={() => {setSelectedAbility(row.name);setSelectedCompany(name);}}>{companyJobs.length ? `${companyJobs.length} 条` : "未明示"}</button></td>; })}<td><strong>{row.count}/{scopedJobs.length}</strong></td></tr>)}</tbody></table>
         <div className="cx-matrix-legend"><span><i className="yes" /> JD 明确</span><span><i className="no" /> 未明示，不等于不需要</span></div>
       </section>
       <aside className="cx-panel cx-stage-ladder">
@@ -601,6 +619,7 @@ function LearnView({ jobs, reviews, onReview, onNotify }: { jobs:JobRecord[]; re
   const selected = modules.find((card) => card.id === selectedId) || modules[0];
   const learningUrl=selected.learnUrl || STATIC_LEARNING_LINKS[selected.id] || externalLearningUrl(selected.title);
   const deepDive=LEARNING_DEEP_DIVE[selected.id] || `验收 ${selected.title} 时，不只看“能否运行”：必须同时记录任务成功率、分场景质量、P95 时延、单次成本、失败类型、安全边界和人工接管率；每次改动保留固定基线与回归集，避免只挑成功案例。`;
+  const papers=papersForLearningCard(selected.id,selected.title);
   const companies = new Set(aiJobs.map((job) => job.company));
   const signalCounts = useMemo(() => {
     const counts = new Map<string,number>();
@@ -634,6 +653,7 @@ function LearnView({ jobs, reviews, onReview, onNotify }: { jobs:JobRecord[]; re
         <div className="cx-lesson-section"><h3>03 · 非技术岗具体怎么用</h3><p>{selected.productUse}</p></div>
         <div className="cx-lesson-section cx-deep-dive"><h3>04 · 关键指标与常见误区</h3><p>{deepDive}</p></div>
         <div className="cx-learning-links"><a href={learningUrl} target="_blank" rel="noreferrer">阅读官方深度教程 <b>↗</b></a><small>站外资料用于补充原理与实践；岗位需求判断仍以本站关联的招聘原文为准。</small></div>
+        {papers.length > 0 && <div className="cx-paper-library"><div><span>ORIGINAL PAPERS</span><b>关键论文</b></div>{papers.map((paper) => <a key={paper.url} href={paper.url} target="_blank" rel="noreferrer"><span><b>{paper.title}</b><small>{paper.note}</small></span><i>阅读论文 ↗</i></a>)}</div>}
         <div className="cx-mental-model"><span>5 MIN MENTAL MODEL</span><p>{selected.mentalModel}</p></div>
         <div className="cx-jd-signal"><span>当前岗位为什么要求它</span><p>{selected.matches.length ? `${[...new Set(selected.matches.map((job) => job.company))].join("、")} 的 ${selected.matches.slice(0,3).map((job) => job.title).join("、")} 等岗位在职责或要求中明确出现了本模块信号。下面可逐条回到官方原文核验。` : "当前已采集岗位尚未明确出现这一技术信号。课程保留为基础知识，但不会伪装成实时招聘趋势。"}</p></div>
         <div className="cx-lesson-tags">{selected.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
