@@ -13,7 +13,16 @@ const backendOrigin=getBackendOrigin();
 const nextConfig: NextConfig = {
   async rewrites() {
     if (!backendOrigin) return [];
-    return [{ source:"/api/:path*",destination:`${backendOrigin}/api/:path*` }];
+    // `beforeFiles` is intentional: the repository also contains local API
+    // routes for standalone deployments.  When a backend origin is supplied,
+    // the proxy must win before Next.js matches those filesystem routes.
+    return {
+      beforeFiles: [
+        { source:"/api/:path*",destination:`${backendOrigin}/api/:path*` },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
   },
 };
 
