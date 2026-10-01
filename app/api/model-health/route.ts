@@ -1,7 +1,7 @@
 import { and, desc, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { modelHealthChecks } from "../../../db/schema";
-import { verifyUser } from "../_lib/auth";
+import { canRunCostlyOperation, verifyUser } from "../_lib/auth";
 
 const DEFAULT_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 
@@ -51,6 +51,9 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await verifyUser(request);
   if (!user) return Response.json({ ok: false, error: "请登录后测试 AI 连接" }, { status: 401 });
+  if (!canRunCostlyOperation(user)) {
+    return Response.json({ ok: false, error: "AI 连接测试仅对站点管理员开放" }, { status: 403 });
+  }
 
   const key = normalizeSecret(process.env.ARK_API_KEY);
   const model = normalizeModelId(process.env.ARK_MODEL_ID);
