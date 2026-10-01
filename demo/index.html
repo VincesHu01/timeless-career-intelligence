@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#151812">
+  <meta name="description" content="Timeless 求职情报系统交互演示，使用合成岗位数据体验市场雷达、岗位库、能力矩阵与 AI 学习路径。">
+  <title>Timeless · 求职情报交互演示</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23151812'/%3E%3Ccircle cx='32' cy='32' r='21' fill='none' stroke='%23e3ca68' stroke-width='5'/%3E%3Cpath d='M32 18v15l10 6' fill='none' stroke='%23e3ca68' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo"><span class="clock">◷</span><div><strong>TIMELESS</strong><small>CAREER INTELLIGENCE</small></div></div>
+    <nav aria-label="产品模块">
+      <button class="nav active" data-view="radar"><span>01</span>市场雷达</button>
+      <button class="nav" data-view="jobs"><span>02</span>岗位情报库</button>
+      <button class="nav" data-view="matrix"><span>03</span>能力矩阵</button>
+      <button class="nav" data-view="learning"><span>04</span>AI 学习路径</button>
+    </nav>
+    <div class="side-note"><span class="pulse"></span><div><b>DEMO MODE</b><small>8 条合成岗位证据<br>不连接招聘网站</small></div></div>
+    <a href="https://github.com/VincesHu01/timeless-career-intelligence" class="source">GitHub 源码</a>
+  </aside>
+  <main class="workspace">
+    <header>
+      <div><p class="eyebrow">EVIDENCE-DRIVEN CAREER INTELLIGENCE</p><h1 id="viewTitle">市场雷达</h1></div>
+      <div class="status"><span></span>演示数据 · 2026-09-30</div>
+    </header>
+
+    <section class="view active" id="radar">
+      <div class="metrics">
+        <article><span>可追溯岗位</span><b>128</b><small>示例统计口径</small></article>
+        <article><span>覆盖企业</span><b>12</b><small>互联网与 AI</small></article>
+        <article><span>AI 相关岗位</span><b>43%</b><small class="up">较上周 +6.2%</small></article>
+        <article><span>证据新鲜度</span><b>92%</b><small>近 30 天更新</small></article>
+      </div>
+      <div class="radar-grid">
+        <article class="panel chart-panel">
+          <div class="panel-title"><div><span>近六周岗位信号</span><small>按公开岗位发布日期聚合</small></div><b>WEEKLY SIGNAL</b></div>
+          <div class="chart" aria-label="岗位信号柱状图">
+            <div style="--h:38%"><i>W35</i></div><div style="--h:52%"><i>W36</i></div><div style="--h:47%"><i>W37</i></div><div style="--h:68%"><i>W38</i></div><div style="--h:77%"><i>W39</i></div><div class="hot" style="--h:91%"><i>W40</i></div>
+          </div>
+        </article>
+        <article class="panel signals">
+          <div class="panel-title"><div><span>本周情报摘要</span><small>每条结论保留证据入口</small></div></div>
+          <button data-open-job="AI 产品经理"><b>AI 产品经理需求升温</b><span>4 家企业新增相关岗位，重点提及 Agent、评测与数据闭环。</span><em>查看证据</em></button>
+          <button data-open-job="增长产品"><b>增长岗位更强调实验能力</b><span>A/B 测试、指标拆解和 SQL 的共现频率上升。</span><em>查看证据</em></button>
+          <button data-open-job="内容运营"><b>内容运营出现 AI 工作流要求</b><span>从“会用工具”转向“设计人机协作流程”。</span><em>查看证据</em></button>
+        </article>
+      </div>
+      <article class="panel company-strip">
+        <div class="panel-title"><div><span>企业活跃度</span><small>点击企业直接筛选岗位</small></div></div>
+        <div class="companies"><button data-company="字节跳动"><b>字节跳动</b><span>28</span></button><button data-company="腾讯"><b>腾讯</b><span>23</span></button><button data-company="阿里巴巴"><b>阿里巴巴</b><span>19</span></button><button data-company="美团"><b>美团</b><span>17</span></button><button data-company="小红书"><b>小红书</b><span>12</span></button></div>
+      </article>
+    </section>
+
+    <section class="view" id="jobs">
+      <div class="toolbar">
+        <label class="search"><span>⌕</span><input id="jobQuery" type="search" placeholder="搜索岗位、企业或能力关键词"></label>
+        <select id="companyFilter" aria-label="企业筛选"><option value="">全部企业</option></select>
+        <select id="trackFilter" aria-label="招聘类型筛选"><option value="">全部招聘类型</option><option>校园招聘</option><option>社会招聘</option></select>
+      </div>
+      <div class="result-summary"><span id="jobCount"></span><button id="clearFilters">清除筛选</button></div>
+      <div id="jobList" class="job-list" aria-live="polite"></div>
+    </section>
+
+    <section class="view" id="matrix">
+      <div class="section-copy"><p>矩阵只统计岗位原文中明确出现的要求。“未明示”不等于“不需要”。</p><div class="legend"><span><i class="high"></i>高频</span><span><i class="mid"></i>中频</span><span><i class="low"></i>低频</span></div></div>
+      <div class="matrix-wrap"><table><thead><tr><th>能力维度</th><th>产品</th><th>运营</th><th>AI 产品</th><th>增长</th><th>策略</th></tr></thead><tbody id="matrixBody"></tbody></table></div>
+      <article class="panel evidence-box"><div><span class="eyebrow">SELECTED CAPABILITY</span><h2 id="capTitle">数据分析</h2><p id="capDesc">把业务问题转化为指标，通过数据验证判断，并能解释结论的边界。</p></div><div id="capEvidence"></div></article>
+    </section>
+
+    <section class="view" id="learning">
+      <div class="learning-intro"><div><p class="eyebrow">JOB-DRIVEN LEARNING</p><h2>从岗位要求反推学习优先级</h2><p>不是泛泛地“学 AI”，而是先看目标岗位正在要求什么，再形成可执行的学习任务。</p></div><div class="progress-ring"><b>3/8</b><span>本周进度</span></div></div>
+      <div id="lessonList" class="lessons"></div>
+      <article id="lessonDetail" class="panel lesson-detail" aria-live="polite"></article>
+    </section>
+  </main>
+  <div id="drawer" class="drawer" aria-hidden="true"><div class="drawer-card"><button id="closeDrawer" aria-label="关闭">×</button><div id="drawerContent"></div></div></div>
+  <script src="./app.js"></script>
+</body>
+</html>
