@@ -2,9 +2,7 @@
 
 **Evidence-driven career intelligence for product and operations roles in China's technology industry.**
 
-[Try the Interactive Demo](https://htmlpreview.github.io/?https://raw.githubusercontent.com/VincesHu01/timeless-career-intelligence/main/demo/index.html) · [Open the Full App](https://timeless-career-intelligence.vercel.app) · [Report an Issue](https://github.com/VincesHu01/timeless-career-intelligence/issues)
-
-> The interactive demo opens instantly with synthetic job data. No account, database, or API key is required.
+[Open the Live App](https://timeless-career-intelligence.vercel.app) · [Report an Issue](https://github.com/VincesHu01/timeless-career-intelligence/issues)
 
 Timeless helps university students and new graduates understand what leading internet and AI companies actually expect from candidates. It continuously turns public recruitment evidence into a searchable job archive, cross-company capability insights, weekly market signals, and practical AI learning paths. Senior, expert, and management roles are also retained as forward-looking career references.
 
