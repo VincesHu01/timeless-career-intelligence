@@ -1,7 +1,7 @@
 import { and, desc, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { refreshRequests } from "../../../db/schema";
-import { verifyUser } from "../_lib/auth";
+import { canRunCostlyOperation, verifyUser } from "../_lib/auth";
 import { runCompanyCollection, SOURCE_REGISTRY, type CompanyName } from "../_lib/collector";
 
 const allowedCompanies = new Set(Object.keys(SOURCE_REGISTRY));
@@ -9,6 +9,9 @@ const allowedCompanies = new Set(Object.keys(SOURCE_REGISTRY));
 export async function POST(request: Request) {
   const user = await verifyUser(request);
   if (!user) return Response.json({ error:"请登录后请求更新" }, { status:401 });
+  if (!canRunCostlyOperation(user)) {
+    return Response.json({ error:"公开访问仅提供只读数据；采集更新由站点管理员执行" }, { status:403 });
+  }
   const payload = await request.json() as { company?:string };
   if (!payload.company || !allowedCompanies.has(payload.company)) return Response.json({ error:"invalid company" }, { status:400 });
   const db = getDb();
