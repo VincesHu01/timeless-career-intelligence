@@ -1,5 +1,21 @@
 export type VerifiedUser = { id:string; email:string; metadata:Record<string,string> };
 
+function configuredOperatorEmails() {
+  return new Set(
+    (process.env.CORTEX_OPERATOR_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+export function canRunCostlyOperation(user: VerifiedUser) {
+  if (process.env.CORTEX_ALLOW_PUBLIC_COSTLY_ACTIONS?.trim().toLowerCase() === "true") {
+    return true;
+  }
+  return configuredOperatorEmails().has(user.email.trim().toLowerCase());
+}
+
 export async function verifyUser(request: Request): Promise<VerifiedUser | null> {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
