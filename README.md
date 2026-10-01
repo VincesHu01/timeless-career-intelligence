@@ -2,7 +2,7 @@
 
 **Evidence-driven career intelligence for product and operations roles in China's technology industry.**
 
-[Try the Interactive Demo](https://vinceshu01.github.io/timeless-career-intelligence/) · [Open the Full App](https://timeless-career-intelligence.vercel.app) · [Report an Issue](https://github.com/VincesHu01/timeless-career-intelligence/issues)
+[Try the Interactive Demo](https://htmlpreview.github.io/?https://raw.githubusercontent.com/VincesHu01/timeless-career-intelligence/main/demo/index.html) · [Open the Full App](https://timeless-career-intelligence.vercel.app) · [Report an Issue](https://github.com/VincesHu01/timeless-career-intelligence/issues)
 
 > The interactive demo opens instantly with synthetic job data. No account, database, or API key is required.
 
